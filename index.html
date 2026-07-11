@@ -179,6 +179,22 @@
   .switch input:checked + .slider{background:var(--accent);}
   .switch input:checked + .slider:before{transform:translateX(20px);}
 
+  /* Segmented toggle */
+  .seg{display:flex; background:var(--line-soft); border-radius:12px; padding:3px; margin-bottom:6px;}
+  .seg-b{flex:1; padding:9px; border-radius:9px; font-size:13.5px; font-weight:600; color:var(--muted); transition:.15s;}
+  .seg-b.on{background:#fff; color:var(--ink); box-shadow:var(--shadow);}
+
+  /* Sub-linhas (breakdown) */
+  .cat-card.clickable{cursor:pointer;}
+  .chev{width:18px; height:18px; flex:0 0 auto; color:var(--muted); transition:transform .2s;}
+  .chev.open{transform:rotate(90deg);}
+  .subs{margin-top:11px; padding-top:11px; border-top:1px solid var(--line-soft); display:none;}
+  .subs.open{display:block;}
+  .sub-row{display:flex; align-items:center; gap:9px; padding:5px 0; font-size:13.5px;}
+  .sub-row .dot{width:9px; height:9px;}
+  .sub-row .sub-name{flex:1; color:var(--ink);}
+  .sub-row .sub-val{color:var(--muted); font-weight:600; font-family:'Space Grotesk',sans-serif;}
+
   /* Lock screen */
   .lock-screen{position:fixed; inset:0; z-index:80; background:var(--ink); color:#fff; display:none; align-items:center; justify-content:center; padding:24px;}
   .lock-screen.show{display:flex;}
@@ -226,8 +242,12 @@
       </div>
     </div>
 
+    <div class="seg" id="homeSeg">
+      <button class="seg-b on" data-mode="cat">Por categoria</button>
+      <button class="seg-b" data-mode="group">Por cartão</button>
+    </div>
     <div class="sec-lbl">
-      <h2>Metas por categoria</h2>
+      <h2 id="homeSecLbl">Gastos por categoria</h2>
       <button id="goCats">Editar</button>
     </div>
     <div id="catList"></div>
@@ -263,6 +283,10 @@
 
     <div id="importStep2" style="display:none;">
       <div class="sec-lbl"><h2>Revisar novos gastos</h2><button id="importCancel">Cancelar</button></div>
+      <div class="card" style="padding:14px 16px; margin-bottom:12px;">
+        <div style="font-size:12.5px; font-weight:600; color:var(--muted); margin-bottom:8px;">Este extrato é de qual cartão/fonte?</div>
+        <div class="chip-row" id="impGroupChips"></div>
+      </div>
       <div class="rev-count" id="revCount"></div>
       <div id="revList"></div>
       <button class="btn" id="confirmImport" style="margin-top:6px;">Salvar gastos</button>
@@ -278,6 +302,14 @@
       <div id="cmList"></div>
     </div>
     <button class="btn ghost" id="addCatBtn">+ Nova categoria</button>
+
+    <div class="sec-lbl" style="margin-top:26px;"><h2>Cartões e fontes</h2></div>
+    <div class="card">
+      <p style="font-size:13px; color:var(--muted); margin:0 0 8px;">De onde saíram os gastos (Cartão X, Cartão Y, Pix, dinheiro…).</p>
+      <div id="grpList"></div>
+    </div>
+    <button class="btn ghost" id="addGrpBtn">+ Novo cartão/fonte</button>
+
     <div class="sec-lbl" style="margin-top:26px;"><h2>Backup e compartilhar</h2></div>
     <div class="card">
       <p style="font-size:13px; color:var(--muted); line-height:1.55; margin:0 0 14px;">
@@ -344,6 +376,10 @@
       <span>Categoria</span>
     </label>
     <div class="chip-row" id="mCatChips"></div>
+    <label class="fld" style="margin:16px 0 8px;">
+      <span>Cartão / fonte</span>
+    </label>
+    <div class="chip-row" id="mGrpChips"></div>
     <div style="height:18px;"></div>
     <button class="btn" id="saveManual">Salvar gasto</button>
     <div style="height:8px;"></div>
@@ -369,6 +405,23 @@
   </div>
 </div>
 
+<!-- MODAL: cartão/fonte -->
+<div class="modal-bg" id="grpModal">
+  <div class="modal">
+    <div class="modal-grab"></div>
+    <h2 id="grpModalTitle">Novo cartão/fonte</h2>
+    <label class="fld"><span>Nome</span><input type="text" id="gName" placeholder="Ex.: Cartão Nubank, Pix..."></label>
+    <label class="fld" style="margin-bottom:8px;"><span>Cor</span></label>
+    <div class="chip-row" id="gColorChips"></div>
+    <div style="height:18px;"></div>
+    <button class="btn" id="saveGrp">Salvar</button>
+    <div style="height:8px;"></div>
+    <button class="btn danger" id="delGrp" style="display:none;">Excluir</button>
+    <div style="height:8px;"></div>
+    <button class="btn line" id="closeGrpModal">Cancelar</button>
+  </div>
+</div>
+
 <!-- Tela de bloqueio -->
 <div class="lock-screen" id="lockScreen">
   <div class="lock-inner">
@@ -391,15 +444,20 @@
 <script>
 "use strict";
 // ---------------- Estado & armazenamento ----------------
-const K_CATS='fin_categories_v1', K_TX='fin_transactions_v1', K_LOCK='fin_lock_v1';
+const K_CATS='fin_categories_v1', K_TX='fin_transactions_v1', K_LOCK='fin_lock_v1', K_GROUPS='fin_groups_v1';
 let lock={enabled:false, credId:null, pin:null};
 const PALETTE=['#1E6E5C','#3E6EAE','#B5642E','#8A4FBF','#C0417A','#2E8B8B','#C89A2E','#5A6B7A'];
-let cats=[], txs=[], viewMonth=new Date();
+let cats=[], groups=[], txs=[], viewMonth=new Date();
 let pendingImport=[];
 let editingCatId=null, modalCatSel=null, modalColorSel=PALETTE[0];
+let editingGrpId=null, modalGrpSel=null, modalGrpColorSel=PALETTE[0], impGroupSel=null;
+let homeMode='cat'; const expanded=new Set();
+const NONE_GRP={id:'__none', name:'Sem cartão', color:'#9aa3ad'};
+const NONE_CAT={id:'__none', name:'Sem categoria', color:'#9aa3ad'};
 
 function load(){
   try{ cats=JSON.parse(localStorage.getItem(K_CATS))||[]; }catch(e){ cats=[]; }
+  try{ groups=JSON.parse(localStorage.getItem(K_GROUPS))||[]; }catch(e){ groups=[]; }
   try{ txs=JSON.parse(localStorage.getItem(K_TX))||[]; }catch(e){ txs=[]; }
   try{ const l=JSON.parse(localStorage.getItem(K_LOCK)); if(l) lock={enabled:false,credId:null,pin:null,...l}; }catch(e){}
   if(cats.length===0){
@@ -412,8 +470,13 @@ function load(){
     ];
     saveCats();
   }
+  if(groups.length===0){
+    groups=[ {id:uid(),name:'Cartão',color:PALETTE[1]}, {id:uid(),name:'Pix',color:PALETTE[0]}, {id:uid(),name:'Dinheiro',color:PALETTE[6]} ];
+    saveGroups();
+  }
 }
 function saveCats(){ localStorage.setItem(K_CATS,JSON.stringify(cats)); }
+function saveGroups(){ localStorage.setItem(K_GROUPS,JSON.stringify(groups)); }
 function saveTx(){ localStorage.setItem(K_TX,JSON.stringify(txs)); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 
@@ -423,7 +486,8 @@ function fmt(v){ return 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionD
 function fmtShort(v){ return 'R$ '+Math.round(v).toLocaleString('pt-BR'); }
 function todayISO(){ const d=new Date(); return d.toISOString().slice(0,10); }
 function monthKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
-function catById(id){ return cats.find(c=>c.id===id); }
+function catById(id){ return cats.find(c=>c.id===id)|| (id==='__none'?NONE_CAT:null); }
+function grpById(id){ return groups.find(g=>g.id===id)|| (id==='__none'||!id?NONE_GRP:null); }
 
 function parseAmountBR(raw){
   let s=String(raw).replace(/[R$\s]/g,'').replace(/[^\d.,-]/g,'');
@@ -509,7 +573,7 @@ function renderHome(){
   const totalGoal=cats.reduce((a,c)=>a+(Number(c.goal)||0),0);
   document.getElementById('heroTotal').textContent=fmtShort(totalSpent);
   document.getElementById('heroGoal').textContent=fmtShort(totalGoal);
-  const pct=totalGoal>0?Math.min(totalSpent/totalGoal,1):0;
+  const pct=totalGoal>0?Math.min(Math.max(totalSpent,0)/totalGoal,1):0;
   const C=251.3;
   const ring=document.getElementById('ring');
   ring.style.strokeDashoffset=C*(1-pct);
@@ -520,26 +584,61 @@ function renderHome(){
   else if(totalSpent>totalGoal){ pill.textContent='Passou '+fmtShort(totalSpent-totalGoal)+' da meta'; pill.style.background='#FCEBEB'; pill.style.color='var(--over)'; }
   else { pill.textContent='Resta '+fmtShort(totalGoal-totalSpent); pill.style.background='var(--accent-soft)'; pill.style.color='var(--accent-ink)'; }
 
+  document.getElementById('homeSecLbl').textContent = homeMode==='cat' ? 'Gastos por categoria' : 'Gastos por cartão/fonte';
   const wrap=document.getElementById('catList'); wrap.innerHTML='';
-  const withData=cats.map(c=>({c,s:spent[c.id]||0})).filter(x=>x.s>0||x.c.goal>0);
-  if(withData.length===0){
-    wrap.innerHTML='<div class="empty"><div class="em-ic">🎯</div><h3>Nenhuma meta ou gasto ainda</h3><p>Defina metas nas categorias ou registre um gasto no botão +.</p></div>';
+
+  // agrupa os gastos do mês na dimensão primária, com quebra pela secundária
+  const primIsCat = homeMode==='cat';
+  const map={}; // pid -> {total, sub:{sid:val}}
+  for(const t of monthTxs()){
+    const pid = primIsCat ? (t.categoryId||'__none') : (t.groupId||'__none');
+    const sid = primIsCat ? (t.groupId||'__none') : (t.categoryId||'__none');
+    if(!map[pid]) map[pid]={total:0, sub:{}};
+    map[pid].total += t.amount;
+    map[pid].sub[sid]=(map[pid].sub[sid]||0)+t.amount;
+  }
+
+  let rows;
+  if(primIsCat){
+    rows=cats.map(c=>({e:c, d:map[c.id]})).filter(x=>x.d || x.e.goal>0);
+    if(map['__none']) rows.push({e:NONE_CAT, d:map['__none']});
+  } else {
+    rows=groups.map(g=>({e:g, d:map[g.id]})).filter(x=>x.d);
+    if(map['__none']) rows.push({e:NONE_GRP, d:map['__none']});
+  }
+  if(rows.length===0){
+    wrap.innerHTML='<div class="empty"><div class="em-ic">'+(primIsCat?'🎯':'💳')+'</div><h3>Nada aqui ainda</h3><p>'+(primIsCat?'Defina metas ou registre um gasto no +.':'Registre um gasto ou importe uma fatura escolhendo o cartão.')+'</p></div>';
     return;
   }
-  withData.sort((a,b)=>b.s-a.s);
-  for(const {c,s} of withData){
-    const goal=Number(c.goal)||0;
-    const w=goal?Math.min((s/goal)*100,100):(s>0?100:0);
-    const col=statusColor(s,goal);
-    const div=document.createElement('div'); div.className='cat-card';
+  rows.sort((a,b)=> (b.d?b.d.total:0)-(a.d?a.d.total:0));
+
+  for(const {e,d} of rows){
+    const s=d?d.total:0;
+    const goal=primIsCat?(Number(e.goal)||0):0;
+    const w=goal?Math.min((Math.max(s,0)/goal)*100,100):(s>0?100:0);
+    const col=primIsCat?statusColor(s,goal):e.color;
+    const isOpen=expanded.has(e.id);
+    // sub-linhas
+    let subHtml='';
+    if(d){
+      const subs=Object.entries(d.sub).map(([sid,val])=>{
+        const se = primIsCat ? grpById(sid) : catById(sid);
+        return {name:se?se.name:'—', color:se?se.color:'#9aa3ad', val};
+      }).sort((a,b)=>b.val-a.val);
+      subHtml=subs.map(x=>`<div class="sub-row"><span class="dot" style="background:${x.color}"></span><span class="sub-name">${esc(x.name)}</span><span class="sub-val">${fmt(x.val)}</span></div>`).join('');
+    }
+    const div=document.createElement('div'); div.className='cat-card clickable'; div.dataset.id=e.id;
     div.innerHTML=`
       <div class="cat-head">
-        <span class="dot" style="background:${c.color}"></span>
-        <span class="cat-name">${esc(c.name)}</span>
+        <span class="dot" style="background:${e.color}"></span>
+        <span class="cat-name">${esc(e.name)}</span>
         <span class="cat-vals"><b class="num">${fmt(s)}</b>${goal?' / <span class="num">'+fmtShort(goal)+'</span>':''}</span>
+        <svg class="chev ${isOpen?'open':''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>
       </div>
-      <div class="bar"><i style="width:${w}%; background:${goal?col:'#cbd5d0'}"></i></div>
-      <div class="cat-meta"><span>${goal?(s>goal?'Passou '+fmtShort(s-goal):'Resta '+fmtShort(goal-s)):'Sem meta definida'}</span><span>${goal?Math.round((s/goal)*100)+'%':''}</span></div>`;
+      ${primIsCat?`<div class="bar"><i style="width:${w}%; background:${goal?col:'#cbd5d0'}"></i></div>
+      <div class="cat-meta"><span>${goal?(s>goal?'Passou '+fmtShort(s-goal):'Resta '+fmtShort(goal-s)):'Sem meta definida'}</span><span>${goal?Math.round((s/goal)*100)+'%':''}</span></div>`:''}
+      <div class="subs ${isOpen?'open':''}">${subHtml||'<div class="sub-row" style="color:var(--muted)">Sem detalhamento</div>'}</div>`;
+    div.onclick=()=>{ if(expanded.has(e.id)) expanded.delete(e.id); else expanded.add(e.id); renderHome(); };
     wrap.appendChild(div);
   }
 }
@@ -552,6 +651,7 @@ function renderTx(){
   card.innerHTML='';
   for(const t of list){
     const c=catById(t.categoryId); const col=c?c.color:'#9aa3ad';
+    const g=grpById(t.groupId);
     const initial=(c?c.name:'?').slice(0,1).toUpperCase();
     const d=t.date.slice(8,10)+'/'+t.date.slice(5,7);
     const isEstorno=t.amount<0;
@@ -560,7 +660,7 @@ function renderTx(){
       <div class="tx-ic" style="background:${col}">${initial}</div>
       <div class="tx-mid">
         <div class="tx-desc">${esc(t.description)}</div>
-        <div class="tx-sub">${d} · ${c?esc(c.name):'Sem categoria'}${isEstorno?' · estorno':(t.source==='import'?' · fatura':'')}</div>
+        <div class="tx-sub">${d} · ${c?esc(c.name):'Sem categoria'} · ${g?esc(g.name):'—'}${isEstorno?' · estorno':''}</div>
       </div>
       <div class="tx-amt num" style="${isEstorno?'color:var(--under)':''}">${isEstorno?'+'+fmt(-t.amount):fmt(t.amount)}</div>
       <button class="tx-del" data-id="${t.id}" aria-label="Excluir">×</button>`;
@@ -586,7 +686,7 @@ function renderCats(){
 
 function esc(s){ return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 
-function renderAll(){ renderHeader(); renderHome(); renderTx(); renderCats(); }
+function renderAll(){ renderHeader(); renderHome(); renderTx(); renderCats(); renderGroups(); }
 
 // ---------------- Navegação ----------------
 function switchView(v){
@@ -597,6 +697,11 @@ function switchView(v){
 }
 document.querySelectorAll('nav button[data-view]').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 document.getElementById('goCats').onclick=()=>switchView('cats');
+document.querySelectorAll('#homeSeg .seg-b').forEach(b=>b.onclick=()=>{
+  homeMode=b.dataset.mode; expanded.clear();
+  document.querySelectorAll('#homeSeg .seg-b').forEach(x=>x.classList.toggle('on',x===b));
+  renderHome();
+});
 document.getElementById('prevM').onclick=()=>{ viewMonth=new Date(viewMonth.getFullYear(),viewMonth.getMonth()-1,1); renderAll(); };
 document.getElementById('nextM').onclick=()=>{ viewMonth=new Date(viewMonth.getFullYear(),viewMonth.getMonth()+1,1); renderAll(); };
 
@@ -606,7 +711,8 @@ function openAddModal(){
   document.getElementById('mAmt').value='';
   document.getElementById('mDate').value=todayISO();
   modalCatSel=cats.length?cats[0].id:null;
-  renderCatChips();
+  modalGrpSel=groups.length?groups[0].id:null;
+  renderCatChips(); renderGrpChips();
   document.getElementById('addModal').classList.add('show');
 }
 function renderCatChips(){
@@ -615,6 +721,15 @@ function renderCatChips(){
     const chip=document.createElement('button'); chip.className='chip'+(c.id===modalCatSel?' on':'');
     chip.innerHTML=`<span class="dot" style="background:${c.color}"></span>${esc(c.name)}`;
     chip.onclick=()=>{ modalCatSel=c.id; renderCatChips(); };
+    wrap.appendChild(chip);
+  }
+}
+function renderGrpChips(){
+  const wrap=document.getElementById('mGrpChips'); wrap.innerHTML='';
+  for(const g of groups){
+    const chip=document.createElement('button'); chip.className='chip'+(g.id===modalGrpSel?' on':'');
+    chip.innerHTML=`<span class="dot" style="background:${g.color}"></span>${esc(g.name)}`;
+    chip.onclick=()=>{ modalGrpSel=g.id; renderGrpChips(); };
     wrap.appendChild(chip);
   }
 }
@@ -628,7 +743,7 @@ document.getElementById('saveManual').onclick=()=>{
   if(!desc){ toast('Escreva uma descrição'); return; }
   if(amt===null||amt<=0){ toast('Valor inválido'); return; }
   if(!modalCatSel){ toast('Crie uma categoria primeiro'); return; }
-  txs.push({id:uid(),date,description:desc,amount:Math.abs(amt),categoryId:modalCatSel,source:'manual',fp:fingerprint({date,description:desc,amount:amt})});
+  txs.push({id:uid(),date,description:desc,amount:Math.abs(amt),categoryId:modalCatSel,groupId:modalGrpSel,source:'manual',fp:fingerprint({date,description:desc,amount:amt})});
   saveTx();
   document.getElementById('addModal').classList.remove('show');
   renderHome(); renderTx();
@@ -679,6 +794,60 @@ document.getElementById('delCat').onclick=()=>{
   cats=cats.filter(c=>c.id!==editingCatId); saveCats(); saveTx();
   document.getElementById('catModal').classList.remove('show');
   renderAll(); toast('Categoria excluída');
+};
+
+// ---------------- Cartões / fontes ----------------
+function renderGroups(){
+  const list=document.getElementById('grpList'); if(!list) return; list.innerHTML='';
+  for(const g of groups){
+    const div=document.createElement('div'); div.className='cm';
+    div.innerHTML=`<span class="dot" style="background:${g.color}"></span>
+      <span class="cm-name">${esc(g.name)}</span>
+      <button class="btn-sm line" data-id="${g.id}">Editar</button>`;
+    list.appendChild(div);
+  }
+  list.querySelectorAll('button[data-id]').forEach(b=>b.onclick=()=>openGrpModal(b.dataset.id));
+}
+function openGrpModal(id){
+  editingGrpId=id||null;
+  const g=id?grpById(id):null;
+  document.getElementById('grpModalTitle').textContent=id?'Editar cartão/fonte':'Novo cartão/fonte';
+  document.getElementById('gName').value=g?g.name:'';
+  modalGrpColorSel=g?g.color:PALETTE[(groups.length+2)%PALETTE.length];
+  renderGColorChips();
+  document.getElementById('delGrp').style.display=id?'block':'none';
+  document.getElementById('grpModal').classList.add('show');
+}
+function renderGColorChips(){
+  const wrap=document.getElementById('gColorChips'); wrap.innerHTML='';
+  for(const col of PALETTE){
+    const chip=document.createElement('button'); chip.className='chip'+(col===modalGrpColorSel?' on':'');
+    chip.innerHTML=`<span class="dot" style="background:${col}"></span>`;
+    chip.style.width='46px'; chip.style.justifyContent='center';
+    chip.onclick=()=>{ modalGrpColorSel=col; renderGColorChips(); };
+    wrap.appendChild(chip);
+  }
+}
+document.getElementById('addGrpBtn').onclick=()=>openGrpModal(null);
+document.getElementById('closeGrpModal').onclick=()=>document.getElementById('grpModal').classList.remove('show');
+document.getElementById('grpModal').onclick=e=>{ if(e.target.id==='grpModal') e.target.classList.remove('show'); };
+document.getElementById('saveGrp').onclick=()=>{
+  const name=document.getElementById('gName').value.trim();
+  if(!name){ toast('Dê um nome ao cartão/fonte'); return; }
+  if(editingGrpId){ const g=grpById(editingGrpId); g.name=name; g.color=modalGrpColorSel; }
+  else groups.push({id:uid(),name,color:modalGrpColorSel});
+  saveGroups();
+  document.getElementById('grpModal').classList.remove('show');
+  renderAll(); toast('Cartão/fonte salvo');
+};
+document.getElementById('delGrp').onclick=()=>{
+  const used=txs.some(t=>t.groupId===editingGrpId);
+  const msg=used?'Este cartão/fonte tem gastos. Ao excluir, eles ficarão sem cartão. Continuar?':'Excluir?';
+  if(!confirm(msg)) return;
+  if(used) txs.forEach(t=>{ if(t.groupId===editingGrpId) t.groupId=null; });
+  groups=groups.filter(g=>g.id!==editingGrpId); saveGroups(); saveTx();
+  document.getElementById('grpModal').classList.remove('show');
+  renderAll(); toast('Excluído');
 };
 
 // ---------------- Importar ----------------
@@ -753,9 +922,20 @@ function startAnalyze(){
     toast(dup>0?`Tudo já registrado (${dup} ignorados)`:'Nenhum gasto novo'); return;
   }
   pendingImport=novos.map(n=>({...n, categoryId:guessCat(n.description)}));
+  impGroupSel = impGroupSel && groups.some(g=>g.id===impGroupSel) ? impGroupSel : (groups[0]?groups[0].id:null);
+  renderImpGroupChips();
   renderReview(dup);
   document.getElementById('importStep1').style.display='none';
   document.getElementById('importStep2').style.display='block';
+}
+function renderImpGroupChips(){
+  const wrap=document.getElementById('impGroupChips'); wrap.innerHTML='';
+  for(const g of groups){
+    const chip=document.createElement('button'); chip.className='chip'+(g.id===impGroupSel?' on':'');
+    chip.innerHTML=`<span class="dot" style="background:${g.color}"></span>${esc(g.name)}`;
+    chip.onclick=()=>{ impGroupSel=g.id; renderImpGroupChips(); };
+    wrap.appendChild(chip);
+  }
 }
 function guessCat(desc){
   const d=desc.toLowerCase();
@@ -796,8 +976,9 @@ document.getElementById('confirmImport').onclick=()=>{
   if(pendingImport.length===0){ resetImport(); return; }
   const missing=pendingImport.some(t=>!t.categoryId);
   if(missing){ toast('Escolha a categoria de todos os gastos'); return; }
+  if(!impGroupSel){ toast('Escolha o cartão/fonte deste extrato'); return; }
   for(const t of pendingImport){
-    txs.push({id:uid(),date:t.date,description:t.description,amount:t.amount,categoryId:t.categoryId,source:'import',fp:fingerprint(t)});
+    txs.push({id:uid(),date:t.date,description:t.description,amount:t.amount,categoryId:t.categoryId,groupId:impGroupSel,source:'import',fp:fingerprint(t)});
   }
   saveTx();
   const n=pendingImport.length;
@@ -814,7 +995,7 @@ function resetImport(){
 
 // ---------------- Backup ----------------
 document.getElementById('exportBtn').onclick=async ()=>{
-  const data=JSON.stringify({cats,txs,exported:new Date().toISOString()},null,2);
+  const data=JSON.stringify({cats,groups,txs,exported:new Date().toISOString()},null,2);
   const fname='financas-backup-'+todayISO()+'.json';
   const file=new File([data],fname,{type:'application/json'});
   if(navigator.canShare && navigator.canShare({files:[file]})){
@@ -830,7 +1011,7 @@ document.getElementById('importBackupBtn').onclick=()=>document.getElementById('
 document.getElementById('backupInput').onchange=e=>{
   const f=e.target.files[0]; if(!f) return;
   const r=new FileReader();
-  r.onload=()=>{ try{ const d=JSON.parse(r.result); if(d.cats&&d.txs){ if(confirm('Restaurar backup? Isso substitui os dados atuais.')){ cats=d.cats; txs=d.txs; saveCats(); saveTx(); renderAll(); switchView('home'); toast('Backup restaurado'); } } else toast('Arquivo inválido'); }catch(err){ toast('Arquivo inválido'); } };
+  r.onload=()=>{ try{ const d=JSON.parse(r.result); if(d.cats&&d.txs){ if(confirm('Restaurar backup? Isso substitui os dados atuais.')){ cats=d.cats; txs=d.txs; if(d.groups) groups=d.groups; saveCats(); saveGroups(); saveTx(); renderAll(); switchView('home'); toast('Backup restaurado'); } } else toast('Arquivo inválido'); }catch(err){ toast('Arquivo inválido'); } };
   r.readAsText(f);
 };
 
