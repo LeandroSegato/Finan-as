@@ -475,14 +475,14 @@ function parseTransactions(text){
       if(monies.length===0) continue;
       const mtxt=monies[monies.length-1][0];
       const val=parseAmountBR(mtxt);
-      if(val===null || val<0) continue;
+      if(val===null || val===0) continue;
       const iso=normDate(dates[i].txt);
       if(!validDate(iso)) continue;
       if(seg.includes(':')) continue;
       let desc=seg.replace(dates[i].txt,' ').replace(mtxt,' ');
       desc=desc.replace(/R\$/gi,' ').replace(/["']/g,' ').replace(/[;,]/g,' ').replace(/\s+/g,' ').trim();
       if(!desc && pendingDesc) desc=pendingDesc.replace(/["';,]/g,' ').replace(/\s+/g,' ').trim();
-      out.push({date:iso, description:desc||'Compra', amount:Math.abs(val)});
+      out.push({date:iso, description:desc||'Compra', amount:val});
     }
     pendingDesc='';
   }
@@ -554,14 +554,15 @@ function renderTx(){
     const c=catById(t.categoryId); const col=c?c.color:'#9aa3ad';
     const initial=(c?c.name:'?').slice(0,1).toUpperCase();
     const d=t.date.slice(8,10)+'/'+t.date.slice(5,7);
+    const isEstorno=t.amount<0;
     const row=document.createElement('div'); row.className='tx';
     row.innerHTML=`
       <div class="tx-ic" style="background:${col}">${initial}</div>
       <div class="tx-mid">
         <div class="tx-desc">${esc(t.description)}</div>
-        <div class="tx-sub">${d} · ${c?esc(c.name):'Sem categoria'}${t.source==='import'?' · fatura':''}</div>
+        <div class="tx-sub">${d} · ${c?esc(c.name):'Sem categoria'}${isEstorno?' · estorno':(t.source==='import'?' · fatura':'')}</div>
       </div>
-      <div class="tx-amt num">${fmt(t.amount)}</div>
+      <div class="tx-amt num" style="${isEstorno?'color:var(--under)':''}">${isEstorno?'+'+fmt(-t.amount):fmt(t.amount)}</div>
       <button class="tx-del" data-id="${t.id}" aria-label="Excluir">×</button>`;
     card.appendChild(row);
   }
@@ -796,7 +797,7 @@ document.getElementById('confirmImport').onclick=()=>{
   const missing=pendingImport.some(t=>!t.categoryId);
   if(missing){ toast('Escolha a categoria de todos os gastos'); return; }
   for(const t of pendingImport){
-    txs.push({id:uid(),date:t.date,description:t.description,amount:Math.abs(t.amount),categoryId:t.categoryId,source:'import',fp:fingerprint(t)});
+    txs.push({id:uid(),date:t.date,description:t.description,amount:t.amount,categoryId:t.categoryId,source:'import',fp:fingerprint(t)});
   }
   saveTx();
   const n=pendingImport.length;
