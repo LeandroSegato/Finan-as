@@ -245,17 +245,19 @@
       <div class="card">
         <h2 style="font-size:17px; margin-bottom:6px;">Importar fatura</h2>
         <p style="font-size:13.5px; color:var(--muted); line-height:1.5; margin:0 0 15px;">
-          Cole o texto da fatura do cartão ou escolha um arquivo <b>.csv</b>. O app identifica os lançamentos e <b>ignora automaticamente os que você já registrou</b>.
+          Escolha o <b>PDF</b> da fatura (ou um .csv, ou cole o texto). O app identifica os lançamentos e <b>ignora automaticamente os que você já registrou</b>.
         </p>
+        <button class="btn" id="pdfBtn" style="margin-bottom:12px;">📄 Escolher PDF da fatura</button>
         <label class="fld">
-          <span>Colar texto da fatura</span>
+          <span>Ou colar o texto da fatura</span>
           <textarea class="paste" id="pasteBox" placeholder="Ex.:&#10;05/06/2026  Padaria Central  R$ 12,50&#10;06/06/2026  Uber  R$ 25,90&#10;08/06/2026  Mercado Extra  R$ 210,00"></textarea>
         </label>
         <div class="row2" style="margin-top:2px;">
           <button class="btn line" id="fileBtn">Escolher .csv</button>
-          <button class="btn" id="parseBtn">Analisar</button>
+          <button class="btn" id="parseBtn">Analisar texto</button>
         </div>
         <input type="file" id="fileInput" accept=".csv,.txt" style="display:none;">
+        <input type="file" id="pdfInput" accept="application/pdf,.pdf" style="display:none;">
       </div>
     </div>
 
@@ -458,6 +460,7 @@ function parseTransactions(text){
   for(const raw of lines){
     const line=raw.trim(); if(!line) continue;
     if(/^(data|date|descri|hist|valor|lançamento|categoria)/i.test(line) && !/\d/.test(line)) continue;
+    if(/pagamento (recebido|efetuado|de fatura)|total (da|desta) fatura|saldo anterior|fatura anterior|limite (de|total|dispon)/i.test(line)) continue;
     let parts=null;
     if(line.includes(';')) parts=line.split(';');
     else if(line.includes('\t')) parts=line.split('\t');
@@ -685,6 +688,57 @@ document.getElementById('delCat').onclick=()=>{
 };
 
 // ---------------- Importar ----------------
+// Leitura de PDF via pdf.js (carregado sob demanda)
+function loadPdfLib(){
+  return new Promise((res,rej)=>{
+    if(window.pdfjsLib){ res(); return; }
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=()=>{ try{ pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; res(); }catch(e){ rej(e); } };
+    s.onerror=()=>rej(new Error('cdn'));
+    document.head.appendChild(s);
+  });
+}
+async function pdfToText(bytes, password){
+  const pdf=await pdfjsLib.getDocument({data:bytes.slice(), password}).promise;
+  const lines=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p);
+    const content=await page.getTextContent();
+    const items=content.items.filter(i=>i.str && i.str.trim()!=='').map(i=>({s:i.str, x:i.transform[4], y:i.transform[5]}));
+    items.sort((a,b)=> Math.abs(a.y-b.y)>2 ? b.y-a.y : a.x-b.x);
+    let cur=[], lastY=null;
+    for(const it of items){
+      if(lastY!==null && Math.abs(it.y-lastY)>2){ lines.push(cur.join(' ')); cur=[]; }
+      cur.push(it.s); lastY=it.y;
+    }
+    if(cur.length) lines.push(cur.join(' '));
+  }
+  return lines.join('\n');
+}
+document.getElementById('pdfBtn').onclick=()=>document.getElementById('pdfInput').click();
+document.getElementById('pdfInput').onchange=async e=>{
+  const f=e.target.files[0]; if(!f){ return; }
+  if(cats.length===0){ toast('Crie categorias primeiro'); switchView('cats'); e.target.value=''; return; }
+  toast('Lendo o PDF…');
+  try{
+    await loadPdfLib();
+    const bytes=new Uint8Array(await f.arrayBuffer());
+    let text;
+    try{ text=await pdfToText(bytes); }
+    catch(err){
+      if(err && err.name==='PasswordException'){
+        const pw=prompt('O PDF está protegido. Digite a senha da fatura:');
+        if(pw==null){ e.target.value=''; return; }
+        text=await pdfToText(bytes, pw);
+      } else throw err;
+    }
+    if(!text || !text.trim()){ toast('Não achei texto no PDF (pode ser uma imagem escaneada).'); e.target.value=''; return; }
+    document.getElementById('pasteBox').value=text;
+    startAnalyze();
+  }catch(err){ toast('Não consegui ler o PDF. Confira a internet e tente de novo.'); }
+  e.target.value='';
+};
 document.getElementById('fileBtn').onclick=()=>document.getElementById('fileInput').click();
 document.getElementById('fileInput').onchange=e=>{
   const f=e.target.files[0]; if(!f) return;
