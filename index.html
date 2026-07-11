@@ -439,59 +439,52 @@ function parseAmountBR(raw){
   let v=parseFloat(s); if(isNaN(v)) return null;
   return neg?-v:v;
 }
-function isDateStr(p){ return /^\d{4}-\d{2}-\d{2}$/.test(p)||/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(p); }
-function normalizeDate(str){
-  if(!str) return todayISO();
-  if(/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  const m=str.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
-  if(m){
-    let d=m[1].padStart(2,'0'), mo=m[2].padStart(2,'0'), y=m[3];
-    if(!y) y=String(viewMonth.getFullYear());
-    else if(y.length===2) y='20'+y;
-    return y+'-'+mo+'-'+d;
-  }
-  return todayISO();
-}
 function fingerprint(t){ return [t.date, String(t.description).toLowerCase().replace(/\s+/g,' ').trim(), Number(t.amount).toFixed(2)].join('|'); }
 
-// ---------------- Parser de fatura ----------------
+// ---------------- Parser de fatura (Nubank/Bradesco/BTG e genéricos) ----------------
+const MONTHMAP={jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
+function newDateRE(){ return /(?<![\d.,\/-])((\d{4}-\d{2}-\d{2})|(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)|(\d{1,2}\s+(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)))(?![\da-z\/])/gi; }
+function newMoneyRE(){ return /-?\s*R?\$?\s*\d{1,3}(?:\.\d{3})+,\d{2}|-?\s*R?\$?\s*\d+,\d{2}|-?\s*R?\$?\s*\d+\.\d{2}/gi; }
+const BLOCK_RE=/saldo anterior|pagamento (recebido|efetuado|de fatura|autom|m[ií]nimo)|total (da|desta|do|de compras|de pagamentos|para|de obriga)|fatura anterior|limite|encargos|iof\b|multa:|mora:|tarifa|\btaxa\b|rotativo|parcelamento:|mensalidade|cnpj|cashback|obriga[çc]|lançamentos (nacionais|internacionais)|vencimento|per[ií]odo de|dispon[ií]vel|saque no|valor (a pagar|pago)|hist[óo]rico|resumo da/i;
+function normDate(s){
+  s=s.trim().toLowerCase();
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/); if(m) return m[1]+'-'+m[2]+'-'+m[3];
+  m=s.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if(m){ let d=m[1].padStart(2,'0'),mo=m[2].padStart(2,'0'),y=m[3]; if(!y)y=String(viewMonth.getFullYear()); else if(y.length===2)y='20'+y; return y+'-'+mo+'-'+d; }
+  m=s.match(/^(\d{1,2})\s+([a-z]{3})/);
+  if(m && MONTHMAP[m[2]]){ return viewMonth.getFullYear()+'-'+String(MONTHMAP[m[2]]).padStart(2,'0')+'-'+m[1].padStart(2,'0'); }
+  return todayISO();
+}
+function validDate(iso){ const m=iso.match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m) return false; const mo=+m[2],d=+m[3]; return mo>=1&&mo<=12&&d>=1&&d<=31; }
 function parseTransactions(text){
-  const lines=text.split(/\r?\n/); const out=[];
-  for(const raw of lines){
-    const line=raw.trim(); if(!line) continue;
-    if(/^(data|date|descri|hist|valor|lançamento|categoria)/i.test(line) && !/\d/.test(line)) continue;
-    if(/pagamento (recebido|efetuado|de fatura)|total (da|desta) fatura|saldo anterior|fatura anterior|limite (de|total|dispon)/i.test(line)) continue;
-    let parts=null;
-    if(line.includes(';')) parts=line.split(';');
-    else if(line.includes('\t')) parts=line.split('\t');
-    else if((line.match(/,/g)||[]).length>=2 && /,\s*-?\d/.test(line)===false) parts=line.split(',');
-    let dateStr=null, amount=null, desc=null;
-    if(parts){
-      parts=parts.map(p=>p.trim()).filter(p=>p!=='');
-      for(const p of parts){ if(!dateStr&&isDateStr(p)){ dateStr=p; break; } }
-      let amtIdx=-1;
-      for(let i=parts.length-1;i>=0;i--){
-        if(/\d/.test(parts[i]) && /[.,]\d{2}\b/.test(parts[i]) && !isDateStr(parts[i])){
-          const v=parseAmountBR(parts[i]); if(v!==null){ amount=v; amtIdx=i; break; }
-        }
-      }
-      if(amount===null){
-        for(let i=parts.length-1;i>=0;i--){ if(!isDateStr(parts[i])){ const v=parseAmountBR(parts[i]); if(v!==null && /\d/.test(parts[i])){ amount=v; amtIdx=i; break; } } }
-      }
-      const rest=parts.filter((p,i)=> p!==dateStr && i!==amtIdx && !/^-?R?\$?[\d.,\s]+$/.test(p));
-      desc=rest.join(' ').trim();
-    } else {
-      const dm=line.match(/(\d{4}-\d{2}-\d{2})|(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);
-      dateStr=dm?dm[0]:null;
-      const mm=[...line.matchAll(/-?R?\$?\s*\d{1,3}(?:\.\d{3})*,\d{2}|-?R?\$?\s*\d+[.,]\d{2}/g)];
-      if(mm.length){ amount=parseAmountBR(mm[mm.length-1][0]); }
-      desc=line;
-      if(dm) desc=desc.replace(dm[0],' ');
-      if(mm.length) desc=desc.replace(mm[mm.length-1][0],' ');
-      desc=desc.replace(/R\$/g,' ').replace(/\s{2,}/g,' ').trim();
+  const lines=text.split(/\r?\n/); const out=[]; let pendingDesc='';
+  for(let raw of lines){
+    const line=raw.replace(/\s+/g,' ').trim();
+    if(!line) continue;
+    if(BLOCK_RE.test(line)){ pendingDesc=''; continue; }
+    const dates=[...line.matchAll(newDateRE())].map(m=>({txt:m[0], idx:m.index}));
+    if(dates.length===0){
+      if(/[A-Za-zÀ-ú]{3,}/.test(line) && !newMoneyRE().test(line)) pendingDesc=line;
+      continue;
     }
-    if(amount===null) continue;
-    out.push({date:normalizeDate(dateStr), description:desc||'Sem descrição', amount:Math.abs(amount)});
+    for(let i=0;i<dates.length;i++){
+      const start=dates[i].idx;
+      const end=i+1<dates.length?dates[i+1].idx:line.length;
+      const seg=line.slice(start,end);
+      const monies=[...seg.matchAll(newMoneyRE())];
+      if(monies.length===0) continue;
+      const mtxt=monies[monies.length-1][0];
+      const val=parseAmountBR(mtxt);
+      if(val===null || val<0) continue;
+      const iso=normDate(dates[i].txt);
+      if(!validDate(iso)) continue;
+      if(seg.includes(':')) continue;
+      let desc=seg.replace(dates[i].txt,' ').replace(mtxt,' ');
+      desc=desc.replace(/R\$/gi,' ').replace(/["']/g,' ').replace(/[;,]/g,' ').replace(/\s+/g,' ').trim();
+      if(!desc && pendingDesc) desc=pendingDesc.replace(/["';,]/g,' ').replace(/\s+/g,' ').trim();
+      out.push({date:iso, description:desc||'Compra', amount:Math.abs(val)});
+    }
+    pendingDesc='';
   }
   return out;
 }
