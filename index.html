@@ -218,7 +218,8 @@
   .cm-top-head{display:flex; align-items:center; gap:10px;}
   .cm-top-name{flex:1; font-weight:700; font-size:14.5px;}
   .cm-top-goal{font-size:12.5px; color:var(--muted); font-family:'Space Grotesk',sans-serif; font-weight:600;}
-  .cm-subs{margin:6px 0 2px 19px; border-left:2px solid var(--line-soft); padding-left:12px;}
+  .cm-subs{margin:6px 0 2px 19px; border-left:2px solid var(--line-soft); padding-left:12px; display:none;}
+  .cm-subs.open{display:block;}
   .cm-add-sub{font-size:12.5px; color:var(--accent); font-weight:600; padding:6px 0 2px;}
 
   .cat-card.clickable{cursor:pointer;}
@@ -422,7 +423,7 @@
       </p>
       <button class="btn line" id="setPinBtn" style="margin-top:13px;">Definir PIN de emergência</button>
     </div>
-    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-3</div>
+    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-5</div>
   </section>
 </main>
 
@@ -468,6 +469,8 @@
     <div style="height:6px;"></div>
     <button class="btn" id="saveManual">Salvar gasto</button>
     <div style="height:8px;"></div>
+    <button class="btn danger" id="deleteManualTx" style="display:none;">Excluir gasto</button>
+    <div style="height:8px;" id="deleteManualTxSpacer"></div>
     <button class="btn line" id="closeModal">Cancelar</button>
   </div>
 </div>
@@ -617,7 +620,7 @@ let cats=[], groups=[], txs=[], paid={}, viewMonth=new Date();
 let pendingImport=[];
 let editingCatId=null, modalCatSel=null, modalColorSel=PALETTE[0], modalParentId=null;
 let editingGrpId=null, modalGrpSel=null, modalGrpColorSel=PALETTE[0], impGroupSel=null;
-let homeMode='cat'; const expanded=new Set();
+let homeMode='cat'; const expanded=new Set(); const expandedCats=new Set();
 const NONE_GRP={id:'__none', name:'Sem cartão', color:'#9aa3ad'};
 const NONE_CAT={id:'__none', name:'Sem categoria', color:'#9aa3ad'};
 
@@ -1102,7 +1105,7 @@ function renderTx(){
     const initial=(c?c.name:'?').slice(0,1).toUpperCase();
     const d=t.date.slice(8,10)+'/'+t.date.slice(5,7);
     const isEstorno=t.amount<0;
-    const row=document.createElement('div'); row.className='tx';
+    const row=document.createElement('div'); row.className='tx'; row.style.cursor='pointer';
     row.innerHTML=`
       <div class="tx-ic" style="background:${col}">${initial}</div>
       <div class="tx-mid">
@@ -1111,9 +1114,13 @@ function renderTx(){
       </div>
       <div class="tx-amt num" style="${isEstorno?'color:var(--under)':''}">${isEstorno?'+'+fmt(-t.amount):fmt(t.amount)}</div>
       <button class="tx-del" data-id="${t.id}" aria-label="Excluir">×</button>`;
+    row.querySelector('.tx-mid').onclick=()=>openAddModal(t);
+    row.querySelector('.tx-ic').onclick=()=>openAddModal(t);
+    row.querySelector('.tx-amt').onclick=()=>openAddModal(t);
     card.appendChild(row);
   }
-  card.querySelectorAll('.tx-del').forEach(b=>b.onclick=()=>{
+  card.querySelectorAll('.tx-del').forEach(b=>b.onclick=(ev)=>{
+    ev.stopPropagation();
     if(confirm('Excluir este gasto?')){ txs=txs.filter(x=>x.id!==b.dataset.id); saveTx(); renderTx(); renderHome(); toast('Gasto excluído'); }
   });
 }
@@ -1123,10 +1130,11 @@ function renderCats(){
   for(const c of topCats()){
     const subs=subsOf(c.id);
     const goal=effectiveGoal(c);
+    const isOpen=expandedCats.has(c.id);
     const div=document.createElement('div'); div.className='cm-top';
     let subsHtml='';
     if(subs.length){
-      subsHtml='<div class="cm-subs">'+subs.map(s=>`
+      subsHtml='<div class="cm-subs'+(isOpen?' open':'')+'">'+subs.map(s=>`
         <div class="cm">
           <span class="dot" style="background:${s.color}"></span>
           <span class="cm-name">${esc(s.name)}</span>
@@ -1134,16 +1142,22 @@ function renderCats(){
           <button class="btn-sm line" data-id="${s.id}">Editar</button>
         </div>`).join('')+`<div class="cm-add-sub" data-addsub="${c.id}">+ Adicionar subcategoria</div></div>`;
     } else {
-      subsHtml=`<div class="cm-subs" style="border-left:none; margin-left:0; padding-left:0;"><div class="cm-add-sub" data-addsub="${c.id}">+ Transformar em grupo com subcategorias</div></div>`;
+      subsHtml=`<div class="cm-subs${isOpen?' open':''}" style="border-left:none; margin-left:0; padding-left:0;"><div class="cm-add-sub" data-addsub="${c.id}">+ Transformar em grupo com subcategorias</div></div>`;
     }
     div.innerHTML=`
-      <div class="cm-top-head">
+      <div class="cm-top-head" style="cursor:pointer;">
         <span class="dot" style="background:${c.color}"></span>
         <span class="cm-top-name">${esc(c.name)}</span>
         <span class="cm-top-goal">${goal?fmtShort(goal)+'/mês':'sem meta'}</span>
+        <svg class="chev ${isOpen?'open':''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin:0 2px 0 4px;"><path d="m9 6 6 6-6 6"/></svg>
         <button class="btn-sm line" data-id="${c.id}">Editar</button>
       </div>
       ${subsHtml}`;
+    div.querySelector('.cm-top-head').addEventListener('click', (ev)=>{
+      if(ev.target.closest('button')) return; // não expande ao clicar em "Editar"
+      if(expandedCats.has(c.id)) expandedCats.delete(c.id); else expandedCats.add(c.id);
+      renderCats();
+    });
     list.appendChild(div);
   }
   list.querySelectorAll('button[data-id]').forEach(b=>b.onclick=()=>openCatModal(b.dataset.id));
@@ -1182,20 +1196,26 @@ function updateMCatBtn(){
   if(c){ el.textContent=c.name; btn.classList.remove('placeholder'); }
   else { el.textContent='Escolha a categoria…'; btn.classList.add('placeholder'); }
 }
-function openAddModal(){
-  document.getElementById('mDesc').value='';
-  document.getElementById('mAmt').value='';
-  document.getElementById('mDate').value=todayISO();
+let editingTxId=null;
+function openAddModal(txToEdit){
+  editingTxId = (txToEdit && txToEdit.id) ? txToEdit.id : null;
+  document.querySelector('#addModal h2').textContent = editingTxId ? 'Editar gasto' : 'Novo gasto';
+  document.getElementById('mDesc').value = txToEdit ? txToEdit.description : '';
+  document.getElementById('mAmt').value = txToEdit ? Math.abs(txToEdit.amount).toFixed(2).replace('.',',') : '';
+  document.getElementById('mDate').value = txToEdit ? txToEdit.date : todayISO();
   const firstTop=topCats()[0];
-  modalCatSel = firstTop ? (isLeaf(firstTop) ? firstTop.id : (subsOf(firstTop.id)[0]?subsOf(firstTop.id)[0].id:null)) : null;
-  modalGrpSel=groups.length?groups[0].id:null;
+  modalCatSel = txToEdit ? txToEdit.categoryId
+    : (firstTop ? (isLeaf(firstTop) ? firstTop.id : (subsOf(firstTop.id)[0]?subsOf(firstTop.id)[0].id:null)) : null);
+  modalGrpSel = txToEdit ? txToEdit.groupId : (groups.length?groups[0].id:null);
   updateMCatBtn();
   document.getElementById('mGrpSelect').innerHTML = groups.map(g=>`<option value="${g.id}"${g.id===modalGrpSel?' selected':''}>${esc(g.name)}</option>`).join('');
+  document.getElementById('saveManual').textContent = editingTxId ? 'Salvar alterações' : 'Salvar gasto';
+  document.getElementById('deleteManualTx').style.display = editingTxId ? 'block' : 'none';
   document.getElementById('addModal').classList.add('show');
 }
 document.getElementById('mCatBtn').onclick=()=>openCatPicker({type:'manual'}, modalCatSel);
 document.getElementById('mGrpSelect').onchange=e=>{ modalGrpSel=e.target.value||null; };
-document.getElementById('fab').onclick=openAddModal;
+document.getElementById('fab').onclick=()=>openAddModal();
 document.getElementById('closeModal').onclick=()=>document.getElementById('addModal').classList.remove('show');
 document.getElementById('addModal').onclick=e=>{ if(e.target.id==='addModal') e.target.classList.remove('show'); };
 document.getElementById('saveManual').onclick=()=>{
@@ -1204,12 +1224,30 @@ document.getElementById('saveManual').onclick=()=>{
   const date=document.getElementById('mDate').value||todayISO();
   if(!desc){ toast('Escreva uma descrição'); return; }
   if(amt===null||amt<=0){ toast('Valor inválido'); return; }
-  if(!modalCatSel){ toast('Crie uma categoria primeiro'); return; }
-  txs.push({id:uid(),date,description:desc,origDescription:desc,amount:Math.abs(amt),categoryId:modalCatSel,groupId:modalGrpSel,source:'manual',fp:fingerprint({date,description:desc,amount:amt})});
+  if(!modalCatSel){ toast('Escolha uma categoria'); return; }
+  if(editingTxId){
+    const t=txs.find(x=>x.id===editingTxId);
+    if(t){
+      const wasNegative=t.amount<0;
+      t.description=desc; t.date=date; t.categoryId=modalCatSel; t.groupId=modalGrpSel;
+      t.amount = wasNegative ? -Math.abs(amt) : Math.abs(amt);
+      // origDescription e fp não mudam: preserva a identidade original pra não duplicar em reimportações futuras
+    }
+  } else {
+    txs.push({id:uid(),date,description:desc,origDescription:desc,amount:Math.abs(amt),categoryId:modalCatSel,groupId:modalGrpSel,source:'manual',fp:fingerprint({date,description:desc,amount:amt})});
+  }
   saveTx();
   document.getElementById('addModal').classList.remove('show');
   renderHome(); renderTx();
-  toast('Gasto salvo');
+  toast(editingTxId ? 'Gasto atualizado' : 'Gasto salvo');
+};
+document.getElementById('deleteManualTx').onclick=()=>{
+  if(!editingTxId) return;
+  if(!confirm('Excluir este gasto?')) return;
+  txs=txs.filter(x=>x.id!==editingTxId); saveTx();
+  document.getElementById('addModal').classList.remove('show');
+  renderHome(); renderTx();
+  toast('Gasto excluído');
 };
 
 // ---------------- Modal categoria ----------------
