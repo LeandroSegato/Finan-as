@@ -265,6 +265,7 @@
 </style>
 </head>
 <body>
+<script>window.__fbReadyPromise = new Promise(res => { window.__fbResolve = res; });</script>
 
 <header>
   <div class="hd-top">
@@ -385,6 +386,16 @@
     </div>
     <button class="btn ghost" id="addGrpBtn">+ Novo cartão/fonte</button>
 
+    <div class="sec-lbl" style="margin-top:26px;"><h2>Sincronização em nuvem</h2></div>
+    <div class="card">
+      <div id="syncStatusBox">
+        <p style="font-size:13px; color:var(--muted); line-height:1.5; margin:0 0 14px;">
+          Ative pra você e sua esposa verem os mesmos gastos, em tempo real, nos dois celulares. Os dados são criptografados no seu aparelho antes de sair — nem o servidor consegue ler.
+        </p>
+        <button class="btn" id="openSyncSetup">🔒 Ativar sincronização</button>
+      </div>
+    </div>
+
     <div class="sec-lbl" style="margin-top:26px;"><h2>Backup e compartilhar</h2></div>
     <div class="card">
       <p style="font-size:13px; color:var(--muted); line-height:1.55; margin:0 0 14px;">
@@ -411,7 +422,7 @@
       </p>
       <button class="btn line" id="setPinBtn" style="margin-top:13px;">Definir PIN de emergência</button>
     </div>
-    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-2</div>
+    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-3</div>
   </section>
 </main>
 
@@ -526,7 +537,75 @@
   </div>
 </div>
 
+<!-- MODAL: entrar / criar conta de sincronização -->
+<div class="modal-bg" id="syncLoginModal">
+  <div class="modal">
+    <div class="modal-grab"></div>
+    <h2 id="syncLoginTitle">Ativar sincronização</h2>
+    <p style="font-size:13px; color:var(--muted); line-height:1.5; margin:0 0 16px;">
+      Use um e-mail só seu (não precisa ser o mesmo da sua esposa — cada um cria a própria conta).
+    </p>
+    <label class="fld"><span>E-mail</span><input type="email" id="syncEmail" autocomplete="username" placeholder="voce@email.com"></label>
+    <label class="fld"><span>Senha de login</span><input type="password" id="syncPass" autocomplete="current-password" placeholder="Mínimo 6 caracteres"></label>
+    <div class="seg" id="syncModeSeg" style="margin-top:2px;">
+      <button type="button" class="seg-b on" data-mode="signup">Criar conta</button>
+      <button type="button" class="seg-b" data-mode="signin">Já tenho conta</button>
+    </div>
+    <div style="height:14px;"></div>
+    <button class="btn" id="syncLoginBtn">Continuar</button>
+    <div style="height:8px;"></div>
+    <button class="btn line" id="closeSyncLogin">Cancelar</button>
+  </div>
+</div>
+
+<!-- MODAL: frase secreta de criptografia -->
+<div class="modal-bg" id="syncPassModal">
+  <div class="modal">
+    <div class="modal-grab"></div>
+    <h2 id="syncPassTitle">Frase secreta</h2>
+    <p style="font-size:13px; color:var(--muted); line-height:1.5; margin:0 0 16px;" id="syncPassDesc">
+      Crie uma frase que só você e sua esposa vão saber. Ela embaralha os dados antes de sair do celular — <b>guarde-a bem, ela não pode ser recuperada se for esquecida.</b>
+    </p>
+    <label class="fld"><span>Frase secreta</span><input type="password" id="syncPassphrase" placeholder="Ex.: 4 palavras aleatórias"></label>
+    <label class="fld" id="syncPassConfirmWrap"><span>Confirmar frase secreta</span><input type="password" id="syncPassphraseConfirm"></label>
+    <div style="height:8px;"></div>
+    <button class="btn" id="syncPassBtn">Confirmar</button>
+    <div style="height:8px;"></div>
+    <button class="btn line" id="closeSyncPass">Cancelar</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+  import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBwphTEemTE48leYKUau0IuBc2Mdj7ATpY",
+    authDomain: "financas-familiar-2ad28.firebaseapp.com",
+    projectId: "financas-familiar-2ad28",
+    storageBucket: "financas-familiar-2ad28.firebasestorage.app",
+    messagingSenderId: "434231242603",
+    appId: "1:434231242603:web:2b68176a4860515fa5662e"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  window.__fb = {
+    createUserWithEmailAndPassword: (e,p)=>createUserWithEmailAndPassword(auth,e,p),
+    signInWithEmailAndPassword: (e,p)=>signInWithEmailAndPassword(auth,e,p),
+    signOut: ()=>signOut(auth),
+    onAuthStateChanged: (cb)=>onAuthStateChanged(auth, cb),
+    setDoc: (data)=>setDoc(doc(db,'sync','state'), data),
+    onSnapshotState: (cb)=>onSnapshot(doc(db,'sync','state'), cb),
+    projectId: firebaseConfig.projectId
+  };
+  if(window.__fbResolve) window.__fbResolve(window.__fb);
+</script>
 
 <script>
 "use strict";
@@ -563,11 +642,199 @@ function load(){
     saveGroups();
   }
 }
-function saveCats(){ localStorage.setItem(K_CATS,JSON.stringify(cats)); }
-function saveGroups(){ localStorage.setItem(K_GROUPS,JSON.stringify(groups)); }
-function saveTx(){ localStorage.setItem(K_TX,JSON.stringify(txs)); }
-function savePaid(){ localStorage.setItem(K_PAID,JSON.stringify(paid)); }
+function saveCats(){ localStorage.setItem(K_CATS,JSON.stringify(cats)); queueCloudPush(); }
+function saveGroups(){ localStorage.setItem(K_GROUPS,JSON.stringify(groups)); queueCloudPush(); }
+function saveTx(){ localStorage.setItem(K_TX,JSON.stringify(txs)); queueCloudPush(); }
+function savePaid(){ localStorage.setItem(K_PAID,JSON.stringify(paid)); queueCloudPush(); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+// ================= Sincronização em nuvem (criptografada) =================
+const K_SYNC='fin_sync_v1'; // {email, uid} — nada sensível, só referência
+const K_SYNCKEY='fin_synckey_v1'; // chave AES derivada (raw, base64) — fica só neste aparelho
+let fb=null, syncKeyObj=null, cloudPushTimer=null, applyingRemote=false, syncReady=false;
+let pendingSyncMode='signup';
+
+function bufToB64(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+function b64ToBuf(b64){ const s=atob(b64); const a=new Uint8Array(s.length); for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i); return a.buffer; }
+
+async function deriveSyncKey(passphrase){
+  const enc=new TextEncoder();
+  const saltStr=(window.__fb?window.__fb.projectId:'financas')+':financas-salt-v1';
+  const keyMaterial=await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    {name:'PBKDF2', salt:enc.encode(saltStr), iterations:210000, hash:'SHA-256'},
+    keyMaterial, {name:'AES-GCM', length:256}, true, ['encrypt','decrypt']
+  );
+}
+async function saveSyncKeyLocally(key){
+  const raw=await crypto.subtle.exportKey('raw', key);
+  localStorage.setItem(K_SYNCKEY, bufToB64(raw));
+}
+async function loadSyncKeyLocally(){
+  const b64=localStorage.getItem(K_SYNCKEY);
+  if(!b64) return null;
+  const raw=b64ToBuf(b64);
+  return crypto.subtle.importKey('raw', raw, {name:'AES-GCM'}, true, ['encrypt','decrypt']);
+}
+async function encryptState(key, obj){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const enc=new TextEncoder();
+  const cipher=await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, enc.encode(JSON.stringify(obj)));
+  return {iv:bufToB64(iv), data:bufToB64(cipher)};
+}
+async function decryptState(key, payload){
+  const iv=new Uint8Array(b64ToBuf(payload.iv));
+  const cipher=b64ToBuf(payload.data);
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM', iv}, key, cipher);
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+function queueCloudPush(){
+  if(!syncReady || !fb || !syncKeyObj || applyingRemote) return;
+  clearTimeout(cloudPushTimer);
+  cloudPushTimer=setTimeout(pushToCloud, 800);
+}
+async function pushToCloud(){
+  try{
+    const state={cats,groups,txs,paid,updatedAt:Date.now()};
+    const payload=await encryptState(syncKeyObj, state);
+    await fb.setDoc({payload, updatedAt:Date.now()});
+    setSyncStatus('ok');
+  }catch(e){ setSyncStatus('error'); }
+}
+function applyRemoteState(state){
+  applyingRemote=true;
+  cats=state.cats||cats; groups=state.groups||groups; txs=state.txs||txs; paid=state.paid||paid;
+  localStorage.setItem(K_CATS,JSON.stringify(cats));
+  localStorage.setItem(K_GROUPS,JSON.stringify(groups));
+  localStorage.setItem(K_TX,JSON.stringify(txs));
+  localStorage.setItem(K_PAID,JSON.stringify(paid));
+  renderAll();
+  applyingRemote=false;
+}
+function setSyncStatus(status){
+  const box=document.getElementById('syncStatusBox'); if(!box) return;
+  const info=JSON.parse(localStorage.getItem(K_SYNC)||'null');
+  const labels={ok:'✅ Sincronizado', syncing:'🔄 Sincronizando…', error:'⚠️ Erro ao sincronizar', off:'Desativado'};
+  box.innerHTML = `
+    <p style="font-size:13px; color:var(--muted); margin:0 0 4px;">Conta: <b style="color:var(--ink)">${esc(info?info.email:'')}</b></p>
+    <p style="font-size:13px; color:var(--muted); margin:0 0 4px;">Status: ${labels[status]||status}</p>
+    <p style="font-size:11.5px; color:var(--muted); margin:0 0 14px; word-break:break-all;">Seu ID (envie pro Claude travar o acesso): <b style="color:var(--ink); font-family:'Space Grotesk',sans-serif;">${esc(info?info.uidAuth:'')}</b></p>
+    <button class="btn line" id="signOutSync">Sair da sincronização</button>`;
+  document.getElementById('signOutSync').onclick=async ()=>{
+    if(!confirm('Sair da sincronização neste celular? Seus dados salvos aqui continuam, mas param de atualizar automaticamente.')) return;
+    if(fb) await fb.signOut();
+    localStorage.removeItem(K_SYNC); localStorage.removeItem(K_SYNCKEY);
+    syncReady=false; renderSyncBox();
+  };
+}
+function renderSyncBox(){
+  const box=document.getElementById('syncStatusBox'); if(!box) return;
+  const info=JSON.parse(localStorage.getItem(K_SYNC)||'null');
+  if(!info){
+    box.innerHTML=`
+      <p style="font-size:13px; color:var(--muted); line-height:1.5; margin:0 0 14px;">Ative pra você e sua esposa verem os mesmos gastos, em tempo real, nos dois celulares. Os dados são criptografados no seu aparelho antes de sair — nem o servidor consegue ler.</p>
+      <button class="btn" id="openSyncSetup">🔒 Ativar sincronização</button>`;
+    document.getElementById('openSyncSetup').onclick=openSyncLoginModal;
+  } else {
+    setSyncStatus(syncReady?'ok':'syncing');
+  }
+}
+
+// ---- Modal de login ----
+function openSyncLoginModal(){
+  document.getElementById('syncEmail').value='';
+  document.getElementById('syncPass').value='';
+  pendingSyncMode='signup';
+  document.querySelectorAll('#syncModeSeg .seg-b').forEach(b=>b.classList.toggle('on', b.dataset.mode==='signup'));
+  document.getElementById('syncLoginModal').classList.add('show');
+}
+document.querySelectorAll('#syncModeSeg .seg-b').forEach(b=>b.onclick=()=>{
+  pendingSyncMode=b.dataset.mode;
+  document.querySelectorAll('#syncModeSeg .seg-b').forEach(x=>x.classList.toggle('on', x===b));
+});
+document.getElementById('closeSyncLogin').onclick=()=>document.getElementById('syncLoginModal').classList.remove('show');
+document.getElementById('syncLoginModal').onclick=e=>{ if(e.target.id==='syncLoginModal') e.target.classList.remove('show'); };
+document.getElementById('syncLoginBtn').onclick=async ()=>{
+  const email=document.getElementById('syncEmail').value.trim();
+  const pass=document.getElementById('syncPass').value;
+  if(!email || !pass || pass.length<6){ toast('Preencha e-mail e senha (mín. 6 caracteres)'); return; }
+  if(!fb){ toast('Conectando ao servidor, tente de novo em 2s'); return; }
+  try{
+    const cred = pendingSyncMode==='signup'
+      ? await fb.createUserWithEmailAndPassword(email, pass)
+      : await fb.signInWithEmailAndPassword(email, pass);
+    localStorage.setItem(K_SYNC, JSON.stringify({email, uidAuth:cred.user.uid}));
+    document.getElementById('syncLoginModal').classList.remove('show');
+    openSyncPassModal(pendingSyncMode==='signup');
+  }catch(e){
+    const msgs={'auth/email-already-in-use':'Este e-mail já tem conta — toque em "Já tenho conta".','auth/invalid-credential':'E-mail ou senha incorretos.','auth/weak-password':'Senha muito fraca (mín. 6 caracteres).','auth/invalid-email':'E-mail inválido.'};
+    toast(msgs[e.code] || 'Não consegui entrar. Confira sua internet.');
+  }
+};
+
+// ---- Modal de frase secreta ----
+function openSyncPassModal(isNew){
+  document.getElementById('syncPassphrase').value='';
+  document.getElementById('syncPassphraseConfirm').value='';
+  document.getElementById('syncPassConfirmWrap').style.display = isNew ? 'block' : 'none';
+  document.getElementById('syncPassTitle').textContent = isNew ? 'Crie a frase secreta' : 'Digite a frase secreta';
+  document.getElementById('syncPassDesc').innerHTML = isNew
+    ? 'Crie uma frase que só você e sua esposa vão saber. Ela embaralha os dados antes de sair do celular — <b>guarde-a bem, ela não pode ser recuperada se for esquecida.</b>'
+    : 'Digite a mesma frase secreta que foi usada para criar a sincronização (combinada com sua esposa).';
+  document.getElementById('syncPassModal').dataset.isnew = isNew ? '1':'0';
+  document.getElementById('syncPassModal').classList.add('show');
+}
+document.getElementById('closeSyncPass').onclick=()=>document.getElementById('syncPassModal').classList.remove('show');
+document.getElementById('syncPassModal').onclick=e=>{ if(e.target.id==='syncPassModal') e.target.classList.remove('show'); };
+document.getElementById('syncPassBtn').onclick=async ()=>{
+  const isNew=document.getElementById('syncPassModal').dataset.isnew==='1';
+  const p1=document.getElementById('syncPassphrase').value;
+  const p2=document.getElementById('syncPassphraseConfirm').value;
+  if(!p1 || p1.length<6){ toast('Frase muito curta (mín. 6 caracteres)'); return; }
+  if(isNew && p1!==p2){ toast('As frases não são iguais'); return; }
+  const key=await deriveSyncKey(p1);
+  await saveSyncKeyLocally(key);
+  syncKeyObj=key;
+  document.getElementById('syncPassModal').classList.remove('show');
+  startSyncEngine(true);
+};
+
+// ---- Motor: liga tudo (login já feito antes, ou sessão anterior) ----
+async function startSyncEngine(justConfigured){
+  fb = await window.__fbReadyPromise;
+  fb.onAuthStateChanged(async (user)=>{
+    if(!user){ syncReady=false; return; }
+    syncKeyObj = syncKeyObj || await loadSyncKeyLocally();
+    if(!syncKeyObj){ renderSyncBox(); return; } // precisa da frase secreta ainda
+    syncReady=true;
+    setSyncStatus('syncing');
+    fb.onSnapshotState(async (snap)=>{
+      if(!snap.exists()) { if(justConfigured) pushToCloud(); return; }
+      try{
+        const remote=await decryptState(syncKeyObj, snap.data().payload);
+        if(!remote.updatedAt || remote.updatedAt > (JSON.parse(localStorage.getItem('fin_last_applied')||'0'))){
+          applyRemoteState(remote);
+          localStorage.setItem('fin_last_applied', JSON.stringify(remote.updatedAt||Date.now()));
+        }
+        setSyncStatus('ok');
+      }catch(e){
+        setSyncStatus('error');
+        toast('Frase secreta incorreta ou dados corrompidos.');
+      }
+    });
+  });
+}
+(async function connectFbEarly(){
+  fb = await window.__fbReadyPromise;
+})();
+(async function initSyncOnLoad(){
+  const info=localStorage.getItem(K_SYNC);
+  if(!info) return; // sync nunca foi ativada neste aparelho
+  const key=await loadSyncKeyLocally();
+  if(key) syncKeyObj=key;
+  startSyncEngine(false);
+})();
 
 // ---------------- Utilidades ----------------
 const MONTHS=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
@@ -1468,7 +1735,7 @@ function renderSecurity(){
 }
 
 // ---------------- Start ----------------
-load(); renderAll(); renderSecurity();
+load(); renderAll(); renderSecurity(); renderSyncBox();
 if(lock.enabled) showLock();
 </script>
 </body>
