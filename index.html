@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#14181F">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -373,6 +376,7 @@
       </p>
       <button class="btn line" id="setPinBtn" style="margin-top:13px;">Definir PIN de emergência</button>
     </div>
+    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-11-3</div>
   </section>
 </main>
 
@@ -409,16 +413,13 @@
       <label class="fld"><span>Valor (R$)</span><input type="text" inputmode="decimal" id="mAmt" placeholder="0,00"></label>
       <label class="fld"><span>Data</span><input type="date" id="mDate"></label>
     </div>
-    <label class="fld" style="margin-bottom:8px;">
-      <span>Categoria</span>
+    <label class="fld"><span>Categoria</span>
+      <select id="mCatSelect"></select>
     </label>
-    <div class="chip-row" id="mCatChips"></div>
-    <div class="chip-row" id="mSubChips" style="margin-top:8px;"></div>
-    <label class="fld" style="margin:16px 0 8px;">
-      <span>Cartão / fonte</span>
+    <label class="fld"><span>Cartão / fonte</span>
+      <select id="mGrpSelect"></select>
     </label>
-    <div class="chip-row" id="mGrpChips"></div>
-    <div style="height:18px;"></div>
+    <div style="height:6px;"></div>
     <button class="btn" id="saveManual">Salvar gasto</button>
     <div style="height:8px;"></div>
     <button class="btn line" id="closeModal">Cancelar</button>
@@ -488,7 +489,7 @@ let lock={enabled:false, credId:null, pin:null};
 const PALETTE=['#1E6E5C','#3E6EAE','#B5642E','#8A4FBF','#C0417A','#2E8B8B','#C89A2E','#5A6B7A'];
 let cats=[], groups=[], txs=[], paid={}, viewMonth=new Date();
 let pendingImport=[];
-let editingCatId=null, modalCatSel=null, modalTopSel=null, modalColorSel=PALETTE[0], modalParentId=null;
+let editingCatId=null, modalCatSel=null, modalColorSel=PALETTE[0], modalParentId=null;
 let editingGrpId=null, modalGrpSel=null, modalGrpColorSel=PALETTE[0], impGroupSel=null;
 let homeMode='cat'; const expanded=new Set();
 const NONE_GRP={id:'__none', name:'Sem cartão', color:'#9aa3ad'};
@@ -862,47 +863,14 @@ function openAddModal(){
   document.getElementById('mAmt').value='';
   document.getElementById('mDate').value=todayISO();
   const firstTop=topCats()[0];
-  modalTopSel = firstTop ? firstTop.id : null;
   modalCatSel = firstTop ? (isLeaf(firstTop) ? firstTop.id : (subsOf(firstTop.id)[0]?subsOf(firstTop.id)[0].id:null)) : null;
   modalGrpSel=groups.length?groups[0].id:null;
-  renderCatChips(); renderGrpChips();
+  document.getElementById('mCatSelect').innerHTML = leafOptionsHtml(modalCatSel);
+  document.getElementById('mGrpSelect').innerHTML = groups.map(g=>`<option value="${g.id}"${g.id===modalGrpSel?' selected':''}>${esc(g.name)}</option>`).join('');
   document.getElementById('addModal').classList.add('show');
 }
-function renderCatChips(){
-  const wrap=document.getElementById('mCatChips'); wrap.innerHTML='';
-  for(const c of topCats()){
-    const chip=document.createElement('button'); chip.className='chip'+(c.id===modalTopSel?' on':'');
-    chip.innerHTML=`<span class="dot" style="background:${c.color}"></span>${esc(c.name)}`;
-    chip.onclick=()=>{
-      modalTopSel=c.id;
-      if(isLeaf(c)) modalCatSel=c.id;
-      else { const first=subsOf(c.id)[0]; modalCatSel=first?first.id:null; }
-      renderCatChips(); renderSubChips();
-    };
-    wrap.appendChild(chip);
-  }
-  renderSubChips();
-}
-function renderSubChips(){
-  const wrap=document.getElementById('mSubChips'); wrap.innerHTML='';
-  const top=catById(modalTopSel);
-  if(!top || isLeaf(top)) return;
-  for(const s of subsOf(top.id)){
-    const chip=document.createElement('button'); chip.className='chip'+(s.id===modalCatSel?' on':'');
-    chip.innerHTML=`<span class="dot" style="background:${s.color}"></span>${esc(s.name)}`;
-    chip.onclick=()=>{ modalCatSel=s.id; renderSubChips(); };
-    wrap.appendChild(chip);
-  }
-}
-function renderGrpChips(){
-  const wrap=document.getElementById('mGrpChips'); wrap.innerHTML='';
-  for(const g of groups){
-    const chip=document.createElement('button'); chip.className='chip'+(g.id===modalGrpSel?' on':'');
-    chip.innerHTML=`<span class="dot" style="background:${g.color}"></span>${esc(g.name)}`;
-    chip.onclick=()=>{ modalGrpSel=g.id; renderGrpChips(); };
-    wrap.appendChild(chip);
-  }
-}
+document.getElementById('mCatSelect').onchange=e=>{ modalCatSel=e.target.value||null; };
+document.getElementById('mGrpSelect').onchange=e=>{ modalGrpSel=e.target.value||null; };
 document.getElementById('fab').onclick=openAddModal;
 document.getElementById('closeModal').onclick=()=>document.getElementById('addModal').classList.remove('show');
 document.getElementById('addModal').onclick=e=>{ if(e.target.id==='addModal') e.target.classList.remove('show'); };
