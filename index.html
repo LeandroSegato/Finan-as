@@ -307,10 +307,10 @@
           <textarea class="paste" id="pasteBox" placeholder="Ex.:&#10;05/06/2026  Padaria Central  R$ 12,50&#10;06/06/2026  Uber  R$ 25,90&#10;08/06/2026  Mercado Extra  R$ 210,00"></textarea>
         </label>
         <div class="row2" style="margin-top:2px;">
-          <button class="btn line" id="fileBtn">Escolher .csv</button>
+          <button class="btn line" id="fileBtn">Escolher .csv / .xlsx</button>
           <button class="btn" id="parseBtn">Analisar texto</button>
         </div>
-        <input type="file" id="fileInput" accept=".csv,.txt" style="display:none;">
+        <input type="file" id="fileInput" accept=".csv,.txt,.xlsx,.xls" style="display:none;">
         <input type="file" id="pdfInput" accept="application/pdf,.pdf" style="display:none;">
       </div>
     </div>
@@ -566,7 +566,7 @@ function parseAmountBR(raw){
   const lc=s.lastIndexOf(','), ld=s.lastIndexOf('.'); let dec;
   if(lc>-1&&ld>-1) dec=lc>ld?',':'.';
   else if(lc>-1) dec=',';
-  else if(ld>-1) dec=(s.length-ld-1)===2?'.':null;
+  else if(ld>-1) dec=(s.length-ld-1)<=2?'.':null;
   else dec=null;
   if(dec){ const th=dec===','?'.':','; s=s.split(th).join('').replace(dec,'.'); }
   else s=s.replace(/[.,]/g,'');
@@ -578,7 +578,7 @@ function fingerprint(t){ return [t.date, String(t.description).toLowerCase().rep
 // ---------------- Parser de fatura (Nubank/Bradesco/BTG e genéricos) ----------------
 const MONTHMAP={jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
 function newDateRE(){ return /(?<![\d.,\/-])((\d{4}-\d{2}-\d{2})|(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)|(\d{1,2}\s+(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)))(?![\da-z\/])/gi; }
-function newMoneyRE(){ return /-?\s*R?\$?\s*\d{1,3}(?:\.\d{3})+,\d{2}|-?\s*R?\$?\s*\d+,\d{2}|-?\s*R?\$?\s*\d+\.\d{2}/gi; }
+function newMoneyRE(){ return /-?\s*R?\$?\s*\d{1,3}(?:\.\d{3})+,\d{1,2}|-?\s*R?\$?\s*\d+,\d{1,2}|-?\s*R?\$?\s*\d+\.\d{1,2}/gi; }
 const BLOCK_RE=/saldo anterior|pagamento (recebido|efetuado|de fatura|autom|m[ií]nimo)|total (da|desta|do|de compras|de pagamentos|para|de obriga)|fatura anterior|limite|encargos|iof\b|multa:|mora:|tarifa|\btaxa\b|rotativo|parcelamento:|mensalidade|cnpj|cashback|obriga[çc]|lançamentos (nacionais|internacionais)|vencimento|per[ií]odo de|dispon[ií]vel|saque no|valor (a pagar|pago)|hist[óo]rico|resumo da/i;
 function normDate(s){
   s=s.trim().toLowerCase();
@@ -1123,9 +1123,45 @@ document.getElementById('pdfInput').onchange=async e=>{
   }catch(err){ toast('Não consegui ler o PDF. Confira a internet e tente de novo.'); }
   e.target.value='';
 };
+function loadXlsxLib(){
+  return new Promise((res,rej)=>{
+    if(window.XLSX){ res(); return; }
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=()=>res();
+    s.onerror=()=>rej(new Error('cdn'));
+    document.head.appendChild(s);
+  });
+}
+async function xlsxToText(file){
+  await loadXlsxLib();
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array'});
+  let all='';
+  for(const name of wb.SheetNames){
+    all += XLSX.utils.sheet_to_csv(wb.Sheets[name]) + '\n';
+  }
+  return all;
+}
 document.getElementById('fileBtn').onclick=()=>document.getElementById('fileInput').click();
-document.getElementById('fileInput').onchange=e=>{
+document.getElementById('fileInput').onchange=async e=>{
   const f=e.target.files[0]; if(!f) return;
+  const ext=(f.name.split('.').pop()||'').toLowerCase();
+  if(ext==='xlsx'||ext==='xls'){
+    toast('Lendo a planilha…');
+    try{
+      const text=await xlsxToText(f);
+      document.getElementById('pasteBox').value=text; startAnalyze();
+    }catch(err){
+      const msg=(err&&err.message||'').toLowerCase();
+      if(msg.includes('password')||msg.includes('encrypt')){
+        toast('Esta planilha está protegida por senha. Tente importar o PDF ou CSV desse cartão.');
+      } else {
+        toast('Não consegui ler esta planilha. Confira a internet e tente de novo.');
+      }
+    }
+    e.target.value=''; return;
+  }
   const r=new FileReader();
   r.onload=()=>{
     let text=r.result;
@@ -1140,6 +1176,7 @@ document.getElementById('fileInput').onchange=e=>{
     document.getElementById('pasteBox').value=text; startAnalyze();
   };
   r.readAsText(f,'utf-8');
+  e.target.value='';
 };
 document.getElementById('parseBtn').onclick=startAnalyze;
 function startAnalyze(){
