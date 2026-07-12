@@ -423,7 +423,7 @@
       </p>
       <button class="btn line" id="setPinBtn" style="margin-top:13px;">Definir PIN de emergência</button>
     </div>
-    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-5</div>
+    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-6</div>
   </section>
 </main>
 
@@ -950,8 +950,9 @@ function findNew(incoming){
 }
 
 // ---------------- Render ----------------
-function monthTxs(){ const mk=monthKey(viewMonth); return txs.filter(t=>t.date.slice(0,7)===mk); }
-function monthTxsFor(mk){ return txs.filter(t=>t.date.slice(0,7)===mk); }
+function txMonthKey(t){ return t.budgetMonth || t.date.slice(0,7); }
+function monthTxs(){ const mk=monthKey(viewMonth); return txs.filter(t=>txMonthKey(t)===mk); }
+function monthTxsFor(mk){ return txs.filter(t=>txMonthKey(t)===mk); }
 function spentByCat(){ const map={}; for(const t of monthTxs()){ map[t.categoryId]=(map[t.categoryId]||0)+t.amount; } return map; }
 function statusColor(spent,goal){ if(!goal) return 'var(--accent)'; const r=spent/goal; return r>1?'var(--over)':r>0.85?'var(--near)':'var(--under)'; }
 
@@ -1105,12 +1106,13 @@ function renderTx(){
     const initial=(c?c.name:'?').slice(0,1).toUpperCase();
     const d=t.date.slice(8,10)+'/'+t.date.slice(5,7);
     const isEstorno=t.amount<0;
+    const isCrossMonth = t.budgetMonth && t.budgetMonth!==t.date.slice(0,7);
     const row=document.createElement('div'); row.className='tx'; row.style.cursor='pointer';
     row.innerHTML=`
       <div class="tx-ic" style="background:${col}">${initial}</div>
       <div class="tx-mid">
         <div class="tx-desc">${esc(t.description)}</div>
-        <div class="tx-sub">${d} · ${c?esc(c.name):'Sem categoria'} · ${g?esc(g.name):'—'}${isEstorno?' · estorno':''}</div>
+        <div class="tx-sub">${d}${isCrossMonth?' <span style="color:var(--near); font-weight:600;">(fatura de '+MONTHS_SHORT[+t.budgetMonth.slice(5,7)-1]+')</span>':''} · ${c?esc(c.name):'Sem categoria'} · ${g?esc(g.name):'—'}${isEstorno?' · estorno':''}</div>
       </div>
       <div class="tx-amt num" style="${isEstorno?'color:var(--under)':''}">${isEstorno?'+'+fmt(-t.amount):fmt(t.amount)}</div>
       <button class="tx-del" data-id="${t.id}" aria-label="Excluir">×</button>`;
@@ -1510,24 +1512,16 @@ document.getElementById('fileInput').onchange=async e=>{
   e.target.value='';
 };
 document.getElementById('parseBtn').onclick=startAnalyze;
-function remapToMonth(dateStr, ym){
-  if(!ym || !/^\d{4}-\d{2}$/.test(ym)) return dateStr;
-  const day=+dateStr.slice(8,10)||1;
-  const [y,m]=ym.split('-').map(Number);
-  const lastDay=new Date(y,m,0).getDate();
-  const d=Math.min(day,lastDay);
-  return ym+'-'+String(d).padStart(2,'0');
-}
 function startAnalyze(){
   const text=document.getElementById('pasteBox').value.trim();
   if(!text){ toast('Cole o texto ou escolha um arquivo'); return; }
   if(cats.length===0){ toast('Crie categorias primeiro'); switchView('cats'); return; }
   const ym=document.getElementById('impMonthInput').value;
+  const validYm = ym && /^\d{4}-\d{2}$/.test(ym) ? ym : null;
   let parsed=parseTransactions(text);
-  if(ym) parsed=parsed.map(p=>({...p, date:remapToMonth(p.date, ym)}));
-  const novos=findNew(parsed);
+  const novos=findNew(parsed); // dedup sempre pela data REAL, nunca afetada pelo mês de vigência
   const dup=parsed.length-novos.length;
-  pendingImport=novos.map(n=>({...n, origDescription:n.description, categoryId:guessCat(n.description)}));
+  pendingImport=novos.map(n=>({...n, origDescription:n.description, budgetMonth:validYm, categoryId:guessCat(n.description)}));
   impGroupSel = impGroupSel && groups.some(g=>g.id===impGroupSel) ? impGroupSel : (groups[0]?groups[0].id:null);
   renderImpGroupChips();
   renderReview(dup, parsed.length===0);
@@ -1649,7 +1643,7 @@ document.getElementById('confirmImport').onclick=()=>{
   if(missing){ toast('Escolha a categoria de todos os gastos'); return; }
   if(!impGroupSel){ toast('Escolha o cartão/fonte deste extrato'); return; }
   for(const t of pendingImport){
-    txs.push({id:uid(),date:t.date,description:t.description,origDescription:t.origDescription,amount:t.amount,categoryId:t.categoryId,groupId:impGroupSel,source:'import',fp:fingerprint(t)});
+    txs.push({id:uid(),date:t.date,description:t.description,origDescription:t.origDescription,amount:t.amount,categoryId:t.categoryId,groupId:impGroupSel,budgetMonth:t.budgetMonth||null,source:'import',fp:fingerprint(t)});
   }
   saveTx();
   const n=pendingImport.length;
