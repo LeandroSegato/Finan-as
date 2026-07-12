@@ -115,6 +115,8 @@
   textarea.paste{min-height:150px; resize:vertical; line-height:1.5; font-size:14px;}
   .row2{display:flex; gap:11px;}
   .row2 > *{flex:1;}
+  select optgroup{font-weight:700; color:var(--accent-ink); font-style:normal;}
+  select option{font-weight:400; color:var(--ink);}
 
   .btn{width:100%; padding:14px; border-radius:13px; font-weight:600; font-size:15px; background:var(--accent); color:#fff; box-shadow:var(--shadow); transition:transform .08s;}
   .btn:active{transform:scale(.985);}
@@ -299,6 +301,15 @@
   <!-- IMPORTAR -->
   <section class="view" id="v-import">
     <div id="importStep1">
+      <div class="card" style="margin-bottom:12px;">
+        <label class="fld" style="margin-bottom:0;">
+          <span>Mês de vigência desta fatura</span>
+          <input type="month" id="impMonthInput">
+        </label>
+        <p style="font-size:12px; color:var(--muted); line-height:1.5; margin:8px 0 0;">
+          Todo gasto desta fatura vai contar neste mês, mesmo que a data da compra seja do mês anterior.
+        </p>
+      </div>
       <div class="card">
         <h2 style="font-size:17px; margin-bottom:6px;">Importar fatura</h2>
         <p style="font-size:13.5px; color:var(--muted); line-height:1.5; margin:0 0 15px;">
@@ -376,7 +387,7 @@
       </p>
       <button class="btn line" id="setPinBtn" style="margin-top:13px;">Definir PIN de emergência</button>
     </div>
-    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-11-3</div>
+    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-11-4</div>
   </section>
 </main>
 
@@ -575,12 +586,12 @@ function parseAmountBR(raw){
   let v=parseFloat(s); if(isNaN(v)) return null;
   return neg?-v:v;
 }
-function fingerprint(t){ return [t.date, String(t.description).toLowerCase().replace(/\s+/g,' ').trim(), Number(t.amount).toFixed(2)].join('|'); }
+function fingerprint(t){ return [t.date, String(t.origDescription||t.description).toLowerCase().replace(/\s+/g,' ').trim(), Number(t.amount).toFixed(2)].join('|'); }
 
 // ---------------- Parser de fatura (Nubank/Bradesco/BTG e genéricos) ----------------
 const MONTHMAP={jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
 function newDateRE(){ return /(?<![\d.,\/-])((\d{4}-\d{2}-\d{2})|(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)|(\d{1,2}\s+(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)))(?![\da-z\/])/gi; }
-function newMoneyRE(){ return /-?\s*R?\$?\s*\d{1,3}(?:\.\d{3})+,\d{1,2}|-?\s*R?\$?\s*\d+,\d{1,2}|-?\s*R?\$?\s*\d+\.\d{1,2}/gi; }
+function newMoneyRE(){ return /-?\s*(?:R\$)?\s*\d{1,3}(?:\.\d{3})+,\d{1,2}|-?\s*(?:R\$)?\s*\d+,\d{1,2}|-?\s*(?:R\$)?\s*\d+\.\d{1,2}/gi; }
 const BLOCK_RE=/saldo anterior|pagamento (recebido|efetuado|de fatura|autom|m[ií]nimo)|total (da|desta|do|de compras|de pagamentos|para|de obriga)|fatura anterior|limite|encargos|iof\b|multa:|mora:|tarifa|\btaxa\b|rotativo|parcelamento:|mensalidade|cnpj|cashback|obriga[çc]|lançamentos (nacionais|internacionais)|vencimento|per[ií]odo de|dispon[ií]vel|saque no|valor (a pagar|pago)|hist[óo]rico|resumo da/i;
 function normDate(s){
   s=s.trim().toLowerCase();
@@ -845,6 +856,9 @@ function switchView(v){
   document.querySelectorAll('.view').forEach(s=>s.classList.remove('active'));
   document.getElementById('v-'+v).classList.add('active');
   document.querySelectorAll('nav button[data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
+  if(v==='import' && !document.getElementById('impMonthInput').value){
+    document.getElementById('impMonthInput').value=monthKey(viewMonth);
+  }
   window.scrollTo(0,0);
 }
 document.querySelectorAll('nav button[data-view]').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
@@ -881,7 +895,7 @@ document.getElementById('saveManual').onclick=()=>{
   if(!desc){ toast('Escreva uma descrição'); return; }
   if(amt===null||amt<=0){ toast('Valor inválido'); return; }
   if(!modalCatSel){ toast('Crie uma categoria primeiro'); return; }
-  txs.push({id:uid(),date,description:desc,amount:Math.abs(amt),categoryId:modalCatSel,groupId:modalGrpSel,source:'manual',fp:fingerprint({date,description:desc,amount:amt})});
+  txs.push({id:uid(),date,description:desc,origDescription:desc,amount:Math.abs(amt),categoryId:modalCatSel,groupId:modalGrpSel,source:'manual',fp:fingerprint({date,description:desc,amount:amt})});
   saveTx();
   document.getElementById('addModal').classList.remove('show');
   renderHome(); renderTx();
@@ -1148,14 +1162,24 @@ document.getElementById('fileInput').onchange=async e=>{
   e.target.value='';
 };
 document.getElementById('parseBtn').onclick=startAnalyze;
+function remapToMonth(dateStr, ym){
+  if(!ym || !/^\d{4}-\d{2}$/.test(ym)) return dateStr;
+  const day=+dateStr.slice(8,10)||1;
+  const [y,m]=ym.split('-').map(Number);
+  const lastDay=new Date(y,m,0).getDate();
+  const d=Math.min(day,lastDay);
+  return ym+'-'+String(d).padStart(2,'0');
+}
 function startAnalyze(){
   const text=document.getElementById('pasteBox').value.trim();
   if(!text){ toast('Cole o texto ou escolha um arquivo'); return; }
   if(cats.length===0){ toast('Crie categorias primeiro'); switchView('cats'); return; }
-  const parsed=parseTransactions(text);
+  const ym=document.getElementById('impMonthInput').value;
+  let parsed=parseTransactions(text);
+  if(ym) parsed=parsed.map(p=>({...p, date:remapToMonth(p.date, ym)}));
   const novos=findNew(parsed);
   const dup=parsed.length-novos.length;
-  pendingImport=novos.map(n=>({...n, categoryId:guessCat(n.description)}));
+  pendingImport=novos.map(n=>({...n, origDescription:n.description, categoryId:guessCat(n.description)}));
   impGroupSel = impGroupSel && groups.some(g=>g.id===impGroupSel) ? impGroupSel : (groups[0]?groups[0].id:null);
   renderImpGroupChips();
   renderReview(dup, parsed.length===0);
@@ -1243,7 +1267,7 @@ document.getElementById('confirmImport').onclick=()=>{
   if(missing){ toast('Escolha a categoria de todos os gastos'); return; }
   if(!impGroupSel){ toast('Escolha o cartão/fonte deste extrato'); return; }
   for(const t of pendingImport){
-    txs.push({id:uid(),date:t.date,description:t.description,amount:t.amount,categoryId:t.categoryId,groupId:impGroupSel,source:'import',fp:fingerprint(t)});
+    txs.push({id:uid(),date:t.date,description:t.description,origDescription:t.origDescription,amount:t.amount,categoryId:t.categoryId,groupId:impGroupSel,source:'import',fp:fingerprint(t)});
   }
   saveTx();
   const n=pendingImport.length;
