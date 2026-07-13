@@ -423,7 +423,7 @@
       </p>
       <button class="btn line" id="setPinBtn" style="margin-top:13px;">Definir PIN de emergência</button>
     </div>
-    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-7</div>
+    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-8</div>
   </section>
 </main>
 
@@ -488,6 +488,11 @@
     <div id="cParentHint" style="display:none; font-size:12.5px; color:var(--accent); font-weight:600; margin:-10px 0 14px;"></div>
     <label class="fld"><span>Nome</span><input type="text" id="cName" placeholder="Ex.: Alimentação"></label>
     <label class="fld"><span>Meta mensal (R$) — opcional</span><input type="text" inputmode="decimal" id="cGoal" placeholder="0,00"></label>
+    <div class="row2">
+      <label class="fld"><span>Meta vale a partir de (opcional)</span><input type="month" id="cGoalStart"></label>
+      <label class="fld"><span>Por quantos meses</span><input type="number" min="1" inputmode="numeric" id="cGoalMonths" placeholder="Ex.: 10"></label>
+    </div>
+    <p style="font-size:11.5px; color:var(--muted); margin:-10px 0 13px; line-height:1.4;">Deixe em branco pra meta valer sempre. Preencha se ela tem prazo (ex.: pagou à vista e quer que pare de contar depois de N meses).</p>
     <label class="fld" style="margin-bottom:8px;"><span>Cor</span></label>
     <div class="chip-row" id="colorChips"></div>
     <div style="height:18px;"></div>
@@ -864,10 +869,19 @@ function topOfCat(catId){
   if(c.parentId){ const p=catById(c.parentId); return p||c; }
   return c;
 }
-function effectiveGoal(c){
+function ymToNum(ym){ const [y,m]=ym.split('-').map(Number); return y*12+(m-1); }
+function goalActiveInMonth(c, mk){
+  if(!c.goalStart || !c.goalMonths) return true; // sem vigência definida = sempre ativa
+  const startN=ymToNum(c.goalStart);
+  const endN=startN+(Number(c.goalMonths)||1)-1;
+  const curN=ymToNum(mk);
+  return curN>=startN && curN<=endN;
+}
+function effectiveGoal(c, mk){
+  mk = mk || monthKey(viewMonth);
   const subs=subsOf(c.id);
-  if(subs.length) return subs.reduce((a,s)=>a+(Number(s.goal)||0),0);
-  return Number(c.goal)||0;
+  if(subs.length) return subs.reduce((a,s)=>a+effectiveGoal(s,mk),0);
+  return goalActiveInMonth(c, mk) ? (Number(c.goal)||0) : 0;
 }
 function paidKey(catId){ return monthKey(viewMonth)+':'+catId; }
 function payStatus(catId, spent, goal){
@@ -964,7 +978,8 @@ function statusColor(spent,goal){ if(!goal) return 'var(--accent)'; const r=spen
 function renderHeader(){ document.getElementById('monthLbl').textContent=MONTHS[viewMonth.getMonth()]+' '+String(viewMonth.getFullYear()).slice(2); }
 
 function renderHome(){
-  const totalGoal=leafCats().reduce((a,c)=>a+(Number(c.goal)||0),0);
+  const mkNow=monthKey(viewMonth);
+  const totalGoal=topCats().reduce((a,c)=>a+effectiveGoal(c,mkNow),0);
   const totalSpent=monthTxs().reduce((a,t)=>a+t.amount,0);
   document.getElementById('heroTotal').textContent=fmtShort(totalSpent);
   document.getElementById('heroGoal').textContent=fmtShort(totalGoal);
@@ -1027,7 +1042,7 @@ function renderHome(){
       // expande em SUBCATEGORIAS, com barra e status de pagamento própria
       bodyHtml=subs.map(sc=>{
         const spentSub=d?(d.byLeaf[sc.id]||0):0;
-        const g=Number(sc.goal)||0;
+        const g=effectiveGoal(sc, mkNow);
         const wSub=g?Math.min((Math.max(spentSub,0)/g)*100,100):(spentSub>0?100:0);
         const st=payStatus(sc.id, spentSub, g);
         const stCol=st==='pago'?statusColor(0,0):statusColor(spentSub,g);
@@ -1079,7 +1094,7 @@ function renderChart(){
   const N=6;
   const months=[];
   for(let i=N-1;i>=0;i--) months.push(new Date(viewMonth.getFullYear(), viewMonth.getMonth()-i, 1));
-  const totalGoal=leafCats().reduce((a,c)=>a+(Number(c.goal)||0),0);
+  const totalGoal=topCats().reduce((a,c)=>a+effectiveGoal(c,monthKey(viewMonth)),0);
   const vals=months.map(d=>monthTxsFor(monthKey(d)).reduce((a,t)=>a+t.amount,0));
   const maxV=Math.max(totalGoal, ...vals, 1);
   let html='<div class="chart-bars">';
@@ -1132,6 +1147,16 @@ function renderTx(){
   });
 }
 
+function vigenciaLabel(c){
+  if(!c.goalStart || !c.goalMonths) return '';
+  const startN=ymToNum(c.goalStart);
+  const endN=startN+(Number(c.goalMonths)||1)-1;
+  const endY=Math.floor(endN/12), endM=(endN%12)+1;
+  const endLbl=MONTHS_SHORT[endM-1]+'/'+String(endY).slice(2);
+  const nowN=ymToNum(monthKey(viewMonth));
+  const encerrada = nowN>endN;
+  return ' · '+(encerrada?'encerrada em '+endLbl:'até '+endLbl);
+}
 function renderCats(){
   const list=document.getElementById('cmList'); list.innerHTML='';
   for(const c of topCats()){
@@ -1145,7 +1170,7 @@ function renderCats(){
         <div class="cm">
           <span class="dot" style="background:${s.color}"></span>
           <span class="cm-name">${esc(s.name)}</span>
-          <span class="cm-goal">${s.goal?fmtShort(s.goal)+'/mês':'sem meta'}</span>
+          <span class="cm-goal">${s.goal?fmtShort(s.goal)+'/mês'+vigenciaLabel(s):'sem meta'}</span>
           <button class="btn-sm line" data-id="${s.id}">Editar</button>
         </div>`).join('')+`<div class="cm-add-sub" data-addsub="${c.id}">+ Adicionar subcategoria</div></div>`;
     } else {
@@ -1155,7 +1180,7 @@ function renderCats(){
       <div class="cm-top-head" style="cursor:pointer;">
         <span class="dot" style="background:${c.color}"></span>
         <span class="cm-top-name">${esc(c.name)}</span>
-        <span class="cm-top-goal">${goal?fmtShort(goal)+'/mês':'sem meta'}</span>
+        <span class="cm-top-goal">${goal?fmtShort(goal)+'/mês'+(isLeaf(c)?vigenciaLabel(c):''):'sem meta'}</span>
         <svg class="chev ${isOpen?'open':''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin:0 2px 0 4px;"><path d="m9 6 6 6-6 6"/></svg>
         <button class="btn-sm line" data-id="${c.id}">Editar</button>
       </div>
@@ -1271,6 +1296,8 @@ function openCatModal(id, presetParentId){
   document.getElementById('catModalTitle').textContent = id ? 'Editar categoria' : (modalParentId ? 'Nova subcategoria' : 'Nova categoria');
   document.getElementById('cName').value=c?c.name:'';
   document.getElementById('cGoal').value=c&&c.goal?String(c.goal).replace('.',','):'';
+  document.getElementById('cGoalStart').value = c&&c.goalStart ? c.goalStart : '';
+  document.getElementById('cGoalMonths').value = c&&c.goalMonths ? c.goalMonths : '';
   modalColorSel=c?c.color:(modalParentId?(catById(modalParentId).color):PALETTE[topCats().length%PALETTE.length]);
   renderColorChips();
   document.getElementById('delCat').style.display=id?'block':'none';
@@ -1292,9 +1319,13 @@ document.getElementById('catModal').onclick=e=>{ if(e.target.id==='catModal') e.
 document.getElementById('saveCat').onclick=()=>{
   const name=document.getElementById('cName').value.trim();
   const goal=parseAmountBR(document.getElementById('cGoal').value)||0;
+  const goalStartRaw=document.getElementById('cGoalStart').value;
+  const goalStart = /^\d{4}-\d{2}$/.test(goalStartRaw) ? goalStartRaw : null;
+  const goalMonthsRaw=parseInt(document.getElementById('cGoalMonths').value, 10);
+  const goalMonths = goalStart && goalMonthsRaw>0 ? goalMonthsRaw : null;
   if(!name){ toast('Dê um nome à categoria'); return; }
-  if(editingCatId){ const c=catById(editingCatId); c.name=name; c.goal=Math.abs(goal); c.color=modalColorSel; }
-  else cats.push({id:uid(),name,goal:Math.abs(goal),color:modalColorSel,parentId:modalParentId||null});
+  if(editingCatId){ const c=catById(editingCatId); c.name=name; c.goal=Math.abs(goal); c.color=modalColorSel; c.goalStart=goalStart; c.goalMonths=goalMonths; }
+  else cats.push({id:uid(),name,goal:Math.abs(goal),color:modalColorSel,parentId:modalParentId||null,goalStart,goalMonths});
   saveCats();
   document.getElementById('catModal').classList.remove('show');
   renderAll();
