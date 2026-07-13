@@ -423,7 +423,7 @@
       </p>
       <button class="btn line" id="setPinBtn" style="margin-top:13px;">Definir PIN de emergência</button>
     </div>
-    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-6</div>
+    <div style="text-align:center; font-size:11.5px; color:var(--muted); margin:18px 0 6px;">Versão do app: 2026-07-12-7</div>
   </section>
 </main>
 
@@ -460,6 +460,11 @@
       <label class="fld"><span>Valor (R$)</span><input type="text" inputmode="decimal" id="mAmt" placeholder="0,00"></label>
       <label class="fld"><span>Data</span><input type="date" id="mDate"></label>
     </div>
+    <label class="fld">
+      <span>Mês de vigência (opcional)</span>
+      <input type="month" id="mBudgetMonth">
+    </label>
+    <p style="font-size:11.5px; color:var(--muted); margin:-10px 0 13px; line-height:1.4;">Deixe em branco pra contar no mês da data acima. Preencha só se este gasto deve entrar no orçamento de outro mês (ex.: compra no fim do mês que cai na fatura seguinte).</p>
     <label class="fld"><span>Categoria</span>
       <button type="button" class="fld-select" id="mCatBtn"><span id="mCatBtnText">Escolha a categoria…</span><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
     </label>
@@ -1205,6 +1210,7 @@ function openAddModal(txToEdit){
   document.getElementById('mDesc').value = txToEdit ? txToEdit.description : '';
   document.getElementById('mAmt').value = txToEdit ? Math.abs(txToEdit.amount).toFixed(2).replace('.',',') : '';
   document.getElementById('mDate').value = txToEdit ? txToEdit.date : todayISO();
+  document.getElementById('mBudgetMonth').value = txToEdit && txToEdit.budgetMonth ? txToEdit.budgetMonth : '';
   const firstTop=topCats()[0];
   modalCatSel = txToEdit ? txToEdit.categoryId
     : (firstTop ? (isLeaf(firstTop) ? firstTop.id : (subsOf(firstTop.id)[0]?subsOf(firstTop.id)[0].id:null)) : null);
@@ -1224,6 +1230,8 @@ document.getElementById('saveManual').onclick=()=>{
   const desc=document.getElementById('mDesc').value.trim();
   const amt=parseAmountBR(document.getElementById('mAmt').value);
   const date=document.getElementById('mDate').value||todayISO();
+  const bmRaw=document.getElementById('mBudgetMonth').value;
+  const budgetMonth = /^\d{4}-\d{2}$/.test(bmRaw) ? bmRaw : null;
   if(!desc){ toast('Escreva uma descrição'); return; }
   if(amt===null||amt<=0){ toast('Valor inválido'); return; }
   if(!modalCatSel){ toast('Escolha uma categoria'); return; }
@@ -1231,12 +1239,12 @@ document.getElementById('saveManual').onclick=()=>{
     const t=txs.find(x=>x.id===editingTxId);
     if(t){
       const wasNegative=t.amount<0;
-      t.description=desc; t.date=date; t.categoryId=modalCatSel; t.groupId=modalGrpSel;
+      t.description=desc; t.date=date; t.categoryId=modalCatSel; t.groupId=modalGrpSel; t.budgetMonth=budgetMonth;
       t.amount = wasNegative ? -Math.abs(amt) : Math.abs(amt);
       // origDescription e fp não mudam: preserva a identidade original pra não duplicar em reimportações futuras
     }
   } else {
-    txs.push({id:uid(),date,description:desc,origDescription:desc,amount:Math.abs(amt),categoryId:modalCatSel,groupId:modalGrpSel,source:'manual',fp:fingerprint({date,description:desc,amount:amt})});
+    txs.push({id:uid(),date,description:desc,origDescription:desc,amount:Math.abs(amt),categoryId:modalCatSel,groupId:modalGrpSel,budgetMonth,source:'manual',fp:fingerprint({date,description:desc,amount:amt})});
   }
   saveTx();
   document.getElementById('addModal').classList.remove('show');
